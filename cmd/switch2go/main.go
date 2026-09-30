@@ -13,15 +13,13 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"sync"
 	"syscall"
-	"time"
 
 	"github.com/angelispatrick/switch2go/internal/app"
 	"github.com/angelispatrick/switch2go/internal/ble"
 	"github.com/angelispatrick/switch2go/internal/config"
-	"github.com/angelispatrick/switch2go/internal/controller"
 	"github.com/angelispatrick/switch2go/internal/dsu"
+	"github.com/angelispatrick/switch2go/internal/lifecycle"
 	"github.com/angelispatrick/switch2go/internal/protocol"
 	"github.com/angelispatrick/switch2go/internal/virtualpad"
 )
@@ -97,23 +95,18 @@ func scan(ctx context.Context) error {
 	}
 	fmt.Println("Scanning for Switch 2 controllers (Ctrl+C to stop)...")
 	seen := map[string]bool{}
-	_, err = ad.ScanNext(ctx, func(f ble.Found) bool {
-		if !seen[f.Addr()] {
-			seen[f.Addr()] = true
-			state := "paired to " + formatMAC(f.Adv.ReconnectMAC)
-			if f.Adv.Pairing() {
+	_, err = ad.Scan(ctx, func(a lifecycle.Advert) bool {
+		if !seen[a.Addr] {
+			seen[a.Addr] = true
+			state := "paired to " + lifecycle.FormatMAC(a.Adv.ReconnectMAC)
+			if a.Adv.Pairing() {
 				state = "pairing mode"
 			}
-			fmt.Printf("%-40s %-24s RSSI %4d  %s\n", f.Addr(), protocol.ControllerNames[f.Adv.ProductID], f.RSSI, state)
+			fmt.Printf("%-40s %-24s RSSI %4d  %s\n", a.Addr, protocol.ControllerNames[a.Adv.ProductID], a.RSSI, state)
 		}
 		return false
 	})
 	return err
-}
-
-func formatMAC(v uint64) string {
-	return fmt.Sprintf("%02X:%02X:%02X:%02X:%02X:%02X",
-		byte(v>>40), byte(v>>32), byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
 }
 
 func run(ctx context.Context, cfgPath string, log *slog.Logger) error {
@@ -139,110 +132,12 @@ func run(ctx context.Context, cfgPath string, log *slog.Logger) error {
 		log.Info("CemuHook/DSU motion server listening", "addr", dsuServer.Addr())
 	}
 
-	ad, err := ble.Enable()
+	radio, err := ble.Enable()
 	if err != nil {
 		return err
 	}
-
-	var host uint64
-	hostKnown := false
-	if cfg.HostMAC != "" {
-		host, _ = config.ParseMAC(cfg.HostMAC)
-		hostKnown = true
-	} else if host, err = ad.HostMAC(); err == nil {
-		hostKnown = true
-	} else {
-		log.Warn("host Bluetooth address unknown; controllers will not be paired for button-press reconnect", "err", err)
-	}
-	if hostKnown {
-		log.Info("host Bluetooth address", "mac", formatMAC(host))
-	}
-
 	a := app.New(cfg, backend, dsuServer, log)
 	defer a.Close()
-
-	var warnOnce sync.Map
-	accept := func(f ble.Found) bool {
-		if a.Connected(f.Addr()) {
-			return false
-		}
-		if f.Adv.Pairing() || !hostKnown || f.Adv.ReconnectMAC == host || cfg.AcceptForeignControllers {
-			return true
-		}
-		if _, dup := warnOnce.LoadOrStore(f.Addr(), true); !dup {
-			log.Info("ignoring controller paired to another host (hold SYNC to pair, or set accept_foreign_controllers)",
-				"addr", f.Addr(), "model", protocol.ControllerNames[f.Adv.ProductID])
-		}
-		return false
-	}
-
-	log.Info("press a button on a paired controller, or hold SYNC on an unpaired one")
-	for ctx.Err() == nil {
-		if a.Full() {
-			if !sleep(ctx, time.Second) {
-				break
-			}
-			continue
-		}
-		f, err := ad.ScanNext(ctx, accept)
-		if err != nil {
-			if ctx.Err() != nil {
-				break
-			}
-			log.Warn("scan failed; retrying", "err", err)
-			sleep(ctx, 2*time.Second)
-			continue
-		}
-		if err := connect(ctx, ad, a, cfg, f, host, hostKnown, log); err != nil {
-			log.Warn("connection failed; press a button or hold SYNC to retry", "addr", f.Addr(), "err", err)
-		}
-	}
-	return ctx.Err()
-}
-
-func connect(ctx context.Context, ad *ble.Adapter, a *app.App, cfg *config.Config, f ble.Found, host uint64, hostKnown bool, log *slog.Logger) error {
-	log.Info("connecting", "addr", f.Addr(), "model", protocol.ControllerNames[f.Adv.ProductID], "pairing", f.Adv.Pairing())
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	addr := f.Addr()
-	t, err := ad.Connect(f, func() {
-		log.Info("controller disconnected", "addr", addr)
-		a.RemoveDevice(addr)
-	})
-	if err != nil {
-		return err
-	}
-	c := controller.New(t, log)
-	err = c.Initialize(ctx, controller.Options{
-		AdvertisedPID:        f.Adv.ProductID,
-		GCTriggerMode:        cfg.GCTriggerMode,
-		GCTriggerCalibration: cfg.GCTriggerCalibration[addr],
-		Deadzone:             func(k protocol.Kind) float64 { return cfg.Deadzone(k.DeadzoneFamily()) },
-	})
-	if err == nil && f.Adv.Pairing() && hostKnown {
-		if err = c.Pair(ctx, host); err == nil {
-			log.Info("paired; the controller will now reconnect with a button press", "addr", addr)
-		}
-	}
-	if err == nil {
-		err = a.AddDevice(context.WithoutCancel(ctx), c)
-	}
-	if err != nil {
-		_ = c.Close()
-		return err
-	}
-	if cfg.ConnectHaptics {
-		go c.ConnectHaptics(context.Background())
-	}
-	return nil
-}
-
-func sleep(ctx context.Context, d time.Duration) bool {
-	select {
-	case <-time.After(d):
-		return true
-	case <-ctx.Done():
-		return false
-	}
+	m := &lifecycle.Manager{Radio: radio, App: a, Config: cfg, Log: log}
+	return m.Run(ctx)
 }

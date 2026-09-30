@@ -29,3 +29,7 @@ Terms used across the code and docs. Keep code names aligned with these.
 **DSU motion**: gyro/accelerometer samples served to emulators over the CemuHook/DSU UDP protocol.
 
 **Pairing**: bonding a controller in sync mode to this host's Bluetooth address (the **host MAC**), so it later reconnects with a button press. A controller bonded to another host is a **foreign controller**.
+
+**Connection lifecycle**: everything from seeing an advertisement to a controller feeding a player slot: accept or ignore, connect, initialize, pair, attach; and detaching when the link drops at any stage (`lifecycle.Manager`).
+
+**Radio**: the Bluetooth port the connection lifecycle uses to scan, connect and read the host MAC. `internal/ble` is the production adapter; tests use an in-memory radio.

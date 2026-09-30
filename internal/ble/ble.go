@@ -13,6 +13,7 @@ import (
 	"tinygo.org/x/bluetooth"
 
 	"github.com/angelispatrick/switch2go/internal/controller"
+	"github.com/angelispatrick/switch2go/internal/lifecycle"
 	"github.com/angelispatrick/switch2go/internal/protocol"
 )
 
@@ -22,17 +23,9 @@ type Adapter struct {
 
 	mu             sync.Mutex
 	onDisconnected map[string]func()
+	// addrs maps scanned address strings to radio addresses for Connect.
+	addrs sync.Map
 }
-
-// Found is a supported controller seen while scanning.
-type Found struct {
-	Address bluetooth.Address
-	Adv     protocol.Advertisement
-	RSSI    int16
-}
-
-// Addr returns the address as a string.
-func (f Found) Addr() string { return f.Address.String() }
 
 // Enable powers up the default adapter.
 func Enable() (*Adapter, error) {
@@ -56,14 +49,16 @@ func Enable() (*Adapter, error) {
 	return ad, nil
 }
 
+var _ lifecycle.Radio = (*Adapter)(nil)
+
 // HostMAC returns the adapter's own address as used by the pairing protocol.
 func (ad *Adapter) HostMAC() (uint64, error) { return hostMAC(ad.a) }
 
-// ScanNext scans until accept returns true for a supported controller, then
-// stops scanning and returns it.
-func (ad *Adapter) ScanNext(ctx context.Context, accept func(Found) bool) (Found, error) {
+// Scan scans until accept approves a supported controller, then stops
+// scanning and returns it.
+func (ad *Adapter) Scan(ctx context.Context, accept func(lifecycle.Advert) bool) (lifecycle.Advert, error) {
 	var (
-		result Found
+		result lifecycle.Advert
 		got    bool
 		mu     sync.Mutex
 	)
@@ -78,43 +73,58 @@ func (ad *Adapter) ScanNext(ctx context.Context, accept func(Found) bool) (Found
 			if err != nil || !adv.Supported() {
 				return
 			}
-			f := Found{Address: r.Address, Adv: adv, RSSI: r.RSSI}
+			found := lifecycle.Advert{Addr: r.Address.String(), Adv: adv, RSSI: r.RSSI}
 			mu.Lock()
 			defer mu.Unlock()
-			if got || !accept(f) {
+			if got || !accept(found) {
 				return
 			}
-			result, got = f, true
+			ad.addrs.Store(found.Addr, r.Address)
+			result, got = found, true
 			_ = a.StopScan()
 			return
 		}
 	})
 	if ctx.Err() != nil {
-		return Found{}, ctx.Err()
+		return lifecycle.Advert{}, ctx.Err()
 	}
 	if err != nil {
-		return Found{}, err
+		return lifecycle.Advert{}, err
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	if !got {
-		return Found{}, errors.New("scan stopped")
+		return lifecycle.Advert{}, errors.New("scan stopped")
 	}
 	return result, nil
 }
 
-// Connect opens a GATT connection and discovers the controller's characteristics.
-// onDisconnect runs once when the link drops.
-func (ad *Adapter) Connect(f Found, onDisconnect func()) (controller.Transport, error) {
-	dev, err := ad.a.Connect(f.Address, bluetooth.ConnectionParams{})
-	if err != nil {
-		return nil, fmt.Errorf("connect %s: %w", f.Addr(), err)
+// Connect opens a GATT connection to a scanned controller and discovers its
+// characteristics. onDisconnect runs once when the link drops.
+func (ad *Adapter) Connect(_ context.Context, adv lifecycle.Advert, onDisconnect func()) (controller.Transport, error) {
+	v, ok := ad.addrs.Load(adv.Addr)
+	if !ok {
+		return nil, fmt.Errorf("connect %s: not seen while scanning", adv.Addr)
 	}
-	t := &transport{ad: ad, dev: dev, addr: f.Addr(), chars: map[string]bluetooth.DeviceCharacteristic{}}
+	// Register first so a drop during service discovery is not missed.
+	ad.mu.Lock()
+	ad.onDisconnected[adv.Addr] = onDisconnect
+	ad.mu.Unlock()
+	fail := func(err error) (controller.Transport, error) {
+		ad.mu.Lock()
+		delete(ad.onDisconnected, adv.Addr)
+		ad.mu.Unlock()
+		return nil, err
+	}
+	dev, err := ad.a.Connect(v.(bluetooth.Address), bluetooth.ConnectionParams{})
+	if err != nil {
+		return fail(fmt.Errorf("connect %s: %w", adv.Addr, err))
+	}
+	t := &transport{ad: ad, dev: dev, addr: adv.Addr, chars: map[string]bluetooth.DeviceCharacteristic{}}
 	services, err := dev.DiscoverServices(nil)
 	if err != nil {
 		_ = dev.Disconnect()
-		return nil, fmt.Errorf("discover services: %w", err)
+		return fail(fmt.Errorf("discover services: %w", err))
 	}
 	for _, s := range services {
 		chars, err := s.DiscoverCharacteristics(nil)
@@ -128,12 +138,9 @@ func (ad *Adapter) Connect(f Found, onDisconnect func()) (controller.Transport, 
 	for _, need := range []string{protocol.InputReportUUID, protocol.CommandWriteUUID, protocol.CommandResponseUUID} {
 		if _, ok := t.chars[need]; !ok {
 			_ = dev.Disconnect()
-			return nil, fmt.Errorf("characteristic %s not found; not a Switch 2 controller?", need)
+			return fail(fmt.Errorf("characteristic %s not found; not a Switch 2 controller?", need))
 		}
 	}
-	ad.mu.Lock()
-	ad.onDisconnected[f.Addr()] = onDisconnect
-	ad.mu.Unlock()
 	return t, nil
 }
 

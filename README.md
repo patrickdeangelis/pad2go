@@ -135,7 +135,8 @@ Layout:
 cmd/switch2go   CLI
 internal/protocol    BLE protocol: UUIDs, commands, reports, calibration, rumble
 internal/controller  per-controller handshake, commands, input, rumble
-internal/ble         tinygo.org/x/bluetooth transport and scanner
+internal/lifecycle   connection lifecycle: accept, connect, pair, attach, drops
+internal/ble         radio adapter over tinygo.org/x/bluetooth
 internal/mapping     player pad: remaps, hold mode, Joy-Con pairs, layout, motion
 internal/app         player slots, rumble routing, DSU publishing
 internal/dsu         CemuHook/DSU UDP server
