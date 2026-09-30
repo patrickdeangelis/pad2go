@@ -1,0 +1,7 @@
+# pkg-config alias: newer distros (Debian 13, Ubuntu 24.04+) ship only
+# WebKitGTK 4.1 (libsoup 3), which is API-compatible for pad2go's window.
+# Build with: PKG_CONFIG_PATH=$PWD/packaging/linux go build ./cmd/pad2go
+Name: webkit2gtk-4.0 (alias of webkit2gtk-4.1)
+Description: WebKitGTK 4.1 under the 4.0 name expected by webview_go
+Version: 2.40.0
+Requires: webkit2gtk-4.1

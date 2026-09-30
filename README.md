@@ -47,9 +47,15 @@ The window uses the system WebView through cgo:
 - **Windows:** WebView2, which is preinstalled on Windows 10/11. Build with
   `-ldflags "-H windowsgui"` so no console opens; a MinGW-w64 toolchain is
   needed for cgo.
-- **Linux:** WebKitGTK (`libwebkit2gtk-4.0`).
+- **Linux:** GTK 3 and WebKitGTK. On Debian 12 install `libwebkit2gtk-4.0-dev`.
+  Newer distros (Debian 13, Ubuntu 24.04+) only ship 4.1: install
+  `libwebkit2gtk-4.1-dev` and build with `PKG_CONFIG_PATH=$PWD/packaging/linux`,
+  which maps the 4.0 name that webview_go expects to 4.1.
 
 The `nowebview` build tag drops the window and opens the browser instead.
+The interface follows each platform: on macOS a translucent sidebar and System
+Settings-style lists; on Windows, Fluent; on Linux, Adwaita. Dark mode
+follows the system.
 `nobluetooth` builds without Bluetooth, for development with `-demo`.
 
 ### Windows

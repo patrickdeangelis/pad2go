@@ -2,6 +2,7 @@
 # Build Pad2Go.app: the single pad2go executable wrapped in a macOS app bundle
 # so a double-click opens the window (not Terminal) and macOS asks for
 # Bluetooth permission on behalf of Pad2Go.
+# TAGS=nobluetooth builds a UI-test app that never touches CoreBluetooth.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 out="${1:-$root/dist}"
@@ -11,7 +12,7 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 (cd "$root" && CGO_CXXFLAGS="-Wno-deprecated-literal-operator" \
-  go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$app/Contents/MacOS/pad2go" ./cmd/pad2go)
+  go build -trimpath -tags "${TAGS:-}" -ldflags "-s -w -X main.version=$version" -o "$app/Contents/MacOS/pad2go" ./cmd/pad2go)
 
 iconset="$(mktemp -d)/pad2go.iconset"
 mkdir -p "$iconset"

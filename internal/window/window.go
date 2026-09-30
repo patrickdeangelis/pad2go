@@ -23,7 +23,8 @@ func New(title, url string, width, height int) *Window {
 	w := webview.New(false)
 	w.SetTitle(title)
 	w.SetSize(width, height, webview.HintNone)
-	w.SetSize(420, 560, webview.HintMin)
+	w.SetSize(760, 540, webview.HintMin)
+	nativeChrome(w.Window())
 	w.Navigate(url)
 	return &Window{w: w}
 }

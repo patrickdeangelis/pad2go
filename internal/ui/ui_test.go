@@ -127,7 +127,7 @@ func TestStaticAndSecurityHeaders(t *testing.T) {
 	if !strings.Contains(resp.Header.Get("Content-Security-Policy"), "default-src 'self'") || resp.Header.Get("X-Frame-Options") != "DENY" {
 		t.Fatalf("headers %v", resp.Header)
 	}
-	for _, asset := range []string{"/app.js", "/styles.css", "/fonts.css", "/assets/pad2go-icon.png", "/assets/fonts/dm-sans.woff2"} {
+	for _, asset := range []string{"/app.js", "/styles.css", "/assets/pad2go-icon.png"} {
 		if code := do(t, "GET", srv.URL+asset, "", nil).StatusCode; code != 200 {
 			t.Errorf("%s: %d", asset, code)
 		}

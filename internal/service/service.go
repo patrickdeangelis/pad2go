@@ -53,6 +53,7 @@ type Service struct {
 	fault      *Fault
 	dsuErr     string
 	discovery  Discovery
+	scanStage  lifecycle.Stage // latest Scanning / Full
 	restarting bool
 	cancelRun  context.CancelFunc
 	players    []app.Player // last snapshot, for connect/disconnect toasts
@@ -254,13 +255,10 @@ func (s *Service) lifecycleEvent(e lifecycle.Event) {
 	recent := !d.at.IsZero() && now.Sub(d.at) < terminalHold
 	set := func(step int, text string) { *d = Discovery{Step: step, Text: text} }
 	switch e.Stage {
-	case lifecycle.Scanning:
+	case lifecycle.Scanning, lifecycle.Full:
+		s.scanStage = e.Stage
 		if !recent {
-			set(0, "Procurando controles…")
-		}
-	case lifecycle.Full:
-		if !recent {
-			set(-1, "Todos os jogadores estão ocupados. Desconecte um jogador ou aumente o limite.")
+			*d = idleDiscovery(e.Stage)
 		}
 	case lifecycle.Found:
 		set(1, e.Model+" encontrado.")
@@ -300,6 +298,13 @@ func (s *Service) lifecycleEvent(e lifecycle.Event) {
 	}
 	s.mu.Unlock()
 	s.notify()
+}
+
+func idleDiscovery(stage lifecycle.Stage) Discovery {
+	if stage == lifecycle.Full {
+		return Discovery{Step: -1, Text: "Todos os jogadores estão ocupados. Desconecte um jogador ou aumente o limite."}
+	}
+	return Discovery{Step: 0, Text: "Procurando controles…"}
 }
 
 // appChanged diffs the player snapshot to announce connects and disconnects.
@@ -465,6 +470,11 @@ func (s *Service) Snapshot() Snapshot {
 		snap.Bluetooth = "off"
 	case s.radio != nil:
 		snap.Bluetooth = "on"
+	}
+	// A result (ready, failed) shows for terminalHold, then the live search
+	// state returns. An ignored foreign controller stays until acted on.
+	if d := s.discovery; !d.at.IsZero() && !d.Foreign && time.Since(d.at) > terminalHold && s.app != nil {
+		snap.Discovery = idleDiscovery(s.scanStage)
 	}
 	motionOnly := s.backend == "none" || platform == "macOS"
 	snap.Output = OutputView{Name: "Xbox 360 virtual", MotionOnly: motionOnly}

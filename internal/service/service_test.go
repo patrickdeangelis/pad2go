@@ -63,6 +63,13 @@ func (r *radio) Connect(_ context.Context, a lifecycle.Advert, _ func()) (contro
 
 func start(t *testing.T, opt Options) *Service {
 	t.Helper()
+	s := build(t, opt)
+	run(t, s)
+	return s
+}
+
+func build(t *testing.T, opt Options) *Service {
+	t.Helper()
 	if opt.ConfigPath == "" {
 		opt.ConfigPath = filepath.Join(t.TempDir(), "config.yaml")
 	}
@@ -75,11 +82,16 @@ func start(t *testing.T, opt Options) *Service {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return s
+}
+
+// run supervises s until the test ends.
+func run(t *testing.T, s *Service) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { s.Run(ctx); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
-	return s
 }
 
 func eventually(t *testing.T, what string, cond func() bool) {
@@ -106,9 +118,10 @@ func TestSettingsRoundTrip(t *testing.T) {
 
 func TestConnectToastSaveAndRestart(t *testing.T) {
 	r := &radio{}
-	s := start(t, Options{Radio: func() (lifecycle.Radio, error) { return r, nil }})
-	events, cancel := s.Subscribe()
+	s := build(t, Options{Radio: func() (lifecycle.Radio, error) { return r, nil }})
+	events, cancel := s.Subscribe() // before Run, so the connect toast can't be missed
 	defer cancel()
+	run(t, s)
 
 	eventually(t, "player 1", func() bool { return len(s.Snapshot().Players) == 1 })
 	snap := s.Snapshot()
@@ -184,5 +197,16 @@ func TestPlayerActionsWithoutRuntime(t *testing.T) {
 	}
 	if _, _, err := s.Watch(1); err == nil {
 		t.Fatal("watch needs a running app")
+	}
+}
+
+func TestDiscoveryResultExpires(t *testing.T) {
+	s := start(t, Options{Radio: func() (lifecycle.Radio, error) { return &radio{}, nil }})
+	eventually(t, "ready", func() bool { return s.Snapshot().Discovery.Step == 4 })
+	s.mu.Lock()
+	s.discovery.at = time.Now().Add(-terminalHold - time.Second)
+	s.mu.Unlock()
+	if d := s.Snapshot().Discovery; d.Step != 0 || d.Text != "Procurando controles…" {
+		t.Fatalf("an old result should give way to the live search state: %+v", d)
 	}
 }
