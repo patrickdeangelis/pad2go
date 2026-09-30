@@ -1,5 +1,7 @@
 # pad2go
 
+![pad2go](docs/banner.png)
+
 > Not affiliated with or endorsed by Nintendo. Nintendo Switch, Joy-Con and
 > related names are trademarks of Nintendo, used here only to describe
 > compatibility.
@@ -147,6 +149,10 @@ internal/config      YAML config
 ```
 
 ## License
+
+The banner's gopher is inspired by the Go gopher, designed by Renée French
+(CC BY 4.0).
+
 
 
 GPL-3.0, same as the upstream project (see `LICENSE`). Protocol knowledge and
