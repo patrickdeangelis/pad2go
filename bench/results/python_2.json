@@ -1,0 +1,63 @@
+{
+ "impl": "python",
+ "version": "3.12.0",
+ "timer_overhead": {
+  "n": 200000,
+  "mean_ns": 37.714455,
+  "p50_ns": 42,
+  "p99_ns": 83,
+  "p999_ns": 125,
+  "max_ns": 33750
+ },
+ "parse_pro": {
+  "n": 200000,
+  "mean_ns": 6709.51356,
+  "p50_ns": 6542,
+  "p99_ns": 9292,
+  "p999_ns": 32708,
+  "max_ns": 159416,
+  "batch_mean_ns": 6812.93917
+ },
+ "parse_gamecube": {
+  "n": 200000,
+  "mean_ns": 7412.73945,
+  "p50_ns": 7209,
+  "p99_ns": 10375,
+  "p999_ns": 38083,
+  "max_ns": 124750,
+  "batch_mean_ns": 7444.975415
+ },
+ "xbox_pipeline": {
+  "n": 200000,
+  "mean_ns": 12445.495725,
+  "p50_ns": 12083,
+  "p99_ns": 18166,
+  "p999_ns": 67000,
+  "max_ns": 382042,
+  "batch_mean_ns": 12316.265415
+ },
+ "rumble_encode": {
+  "n": 200000,
+  "mean_ns": 2090.47953,
+  "p50_ns": 2000,
+  "p99_ns": 3041,
+  "p999_ns": 12583,
+  "max_ns": 70500,
+  "batch_mean_ns": 1989.31729
+ },
+ "dsu_roundtrip": {
+  "n": 50000,
+  "mean_ns": 19561.68278,
+  "p50_ns": 17667,
+  "p99_ns": 49208,
+  "p999_ns": 82459,
+  "max_ns": 123083,
+  "batch_mean_ns": 20029.57582
+ },
+ "parallel_4": {
+  "threads": 4,
+  "reports": 200000,
+  "elapsed_ns": 2554544333,
+  "reports_per_sec": 78291.84931980587
+ }
+}

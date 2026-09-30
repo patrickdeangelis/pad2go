@@ -109,6 +109,13 @@ integrations above are left out.
 - The DSU server converts calibrated [-1, 1] stick values to 0–255. The
   original scaled them as if they were raw 0–4095 readings.
 
+## Performance
+
+Compared with the original Python on the same inputs (Apple M1 Pro), per-report
+processing is about 47× faster (12.3 µs → 0.26 µs) and startup drops from ~470 ms/70 MB
+to under 10 ms/11 MB. Both add latency far below the BLE link's own 7.5–15 ms.
+See [bench/RESULTS.md](bench/RESULTS.md).
+
 ## Development
 
 ```bash
