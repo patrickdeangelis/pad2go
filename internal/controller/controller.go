@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/angelispatrick/switch2go/internal/protocol"
+	"github.com/angelispatrick/pad2go/internal/protocol"
 )
 
 // Transport is the minimal GATT client a controller needs. Characteristics are

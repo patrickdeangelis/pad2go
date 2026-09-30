@@ -1,6 +1,8 @@
-# switch2go
+# pad2go
 
-![switch2go](docs/banner.png)
+> Not affiliated with or endorsed by Nintendo. Nintendo Switch, Joy-Con and
+> related names are trademarks of Nintendo, used here only to describe
+> compatibility.
 
 A Go port of [TommyWabg/Switch2Connect](https://github.com/TommyWabg/Switch2Connect):
 connect **Switch 2 Joy-Cons**, the **Switch 2 Pro Controller** and the **NSO
@@ -15,28 +17,28 @@ Ported from upstream commit `e5dd90b` (2026-09-13).
 ## Quick start
 
 ```bash
-go install github.com/angelispatrick/switch2go/cmd/switch2go@latest
+go install github.com/angelispatrick/pad2go/cmd/pad2go@latest
 ```
 
 ```bash
-switch2go init
+pad2go init
 ```
 
 ```bash
-switch2go
+pad2go
 ```
 
 Then hold **SYNC** on an unpaired controller (or press any button on one
 already paired to this PC). Controllers paired by this tool reconnect with a
 button press next time.
 
-Other commands: `switch2go scan` lists nearby controllers without
+Other commands: `pad2go scan` lists nearby controllers without
 connecting; `-v` turns on debug logging; `-config path.yaml` picks a config file.
 
 ### Windows
 
 1. Install the [ViGEmBus](https://github.com/nefarius/ViGEmBus) driver.
-2. Put `ViGEmClient.dll` (x64) next to `switch2go.exe`. It ships with
+2. Put `ViGEmClient.dll` (x64) next to `pad2go.exe`. It ships with
    ViGEm-based tools (e.g. the `vgamepad` Python package) or can be built from
    [ViGEmClient](https://github.com/nefarius/ViGEmClient).
 3. Hide the physical controller from games with HidHide if you see doubled input.
@@ -59,7 +61,7 @@ expose the adapter MAC, so set `host_mac` if you want pairing.
 
 ## Configuration
 
-`switch2go init` writes a commented `config.yaml`. Key names match the
+`pad2go init` writes a commented `config.yaml`. Key names match the
 original's `config.yaml`, and an existing original config loads as-is (unknown
 keys are ignored; `button_remaps.xbox` overrides apply).
 
@@ -132,7 +134,7 @@ test (needs root and `/dev/uinput`).
 Layout:
 
 ```
-cmd/switch2go   CLI
+cmd/pad2go   CLI
 internal/protocol    BLE protocol: UUIDs, commands, reports, calibration, rumble
 internal/controller  per-controller handshake, commands, input, rumble
 internal/lifecycle   connection lifecycle: accept, connect, pair, attach, drops
@@ -145,9 +147,6 @@ internal/config      YAML config
 ```
 
 ## License
-
-The banner's gopher is inspired by the Go gopher, designed by Renée French
-(CC BY 4.0).
 
 
 GPL-3.0, same as the upstream project (see `LICENSE`). Protocol knowledge and

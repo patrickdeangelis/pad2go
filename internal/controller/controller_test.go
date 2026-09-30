@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/angelispatrick/switch2go/internal/controller/controllertest"
-	"github.com/angelispatrick/switch2go/internal/protocol"
+	"github.com/angelispatrick/pad2go/internal/controller/controllertest"
+	"github.com/angelispatrick/pad2go/internal/protocol"
 )
 
 func initialize(t *testing.T, pid uint16, opt Options) (*Controller, *controllertest.Sim) {

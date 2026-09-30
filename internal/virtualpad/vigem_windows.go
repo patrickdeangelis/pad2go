@@ -12,7 +12,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/angelispatrick/switch2go/internal/mapping"
+	"github.com/angelispatrick/pad2go/internal/mapping"
 )
 
 const platformName = "vigem"

@@ -20,14 +20,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/angelispatrick/switch2go/internal/app"
-	"github.com/angelispatrick/switch2go/internal/config"
-	"github.com/angelispatrick/switch2go/internal/controller"
-	"github.com/angelispatrick/switch2go/internal/controller/controllertest"
-	"github.com/angelispatrick/switch2go/internal/dsu"
-	"github.com/angelispatrick/switch2go/internal/mapping"
-	"github.com/angelispatrick/switch2go/internal/protocol"
-	"github.com/angelispatrick/switch2go/internal/virtualpad"
+	"github.com/angelispatrick/pad2go/internal/app"
+	"github.com/angelispatrick/pad2go/internal/config"
+	"github.com/angelispatrick/pad2go/internal/controller"
+	"github.com/angelispatrick/pad2go/internal/controller/controllertest"
+	"github.com/angelispatrick/pad2go/internal/dsu"
+	"github.com/angelispatrick/pad2go/internal/mapping"
+	"github.com/angelispatrick/pad2go/internal/protocol"
+	"github.com/angelispatrick/pad2go/internal/virtualpad"
 )
 
 var n = 200000

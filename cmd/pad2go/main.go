@@ -1,4 +1,4 @@
-// Command switch2go connects Nintendo Switch 2 Joy-Cons, Pro Controller 2
+// Command pad2go connects Nintendo Switch 2 Joy-Cons, Pro Controller 2
 // and NSO GameCube controllers over Bluetooth LE and exposes them as virtual
 // Xbox 360 controllers, with an optional CemuHook/DSU motion server.
 package main
@@ -15,18 +15,18 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/angelispatrick/switch2go/internal/app"
-	"github.com/angelispatrick/switch2go/internal/ble"
-	"github.com/angelispatrick/switch2go/internal/config"
-	"github.com/angelispatrick/switch2go/internal/dsu"
-	"github.com/angelispatrick/switch2go/internal/lifecycle"
-	"github.com/angelispatrick/switch2go/internal/protocol"
-	"github.com/angelispatrick/switch2go/internal/virtualpad"
+	"github.com/angelispatrick/pad2go/internal/app"
+	"github.com/angelispatrick/pad2go/internal/ble"
+	"github.com/angelispatrick/pad2go/internal/config"
+	"github.com/angelispatrick/pad2go/internal/dsu"
+	"github.com/angelispatrick/pad2go/internal/lifecycle"
+	"github.com/angelispatrick/pad2go/internal/protocol"
+	"github.com/angelispatrick/pad2go/internal/virtualpad"
 )
 
 var version = "dev"
 
-const usage = `Usage: switch2go [flags] [command]
+const usage = `Usage: pad2go [flags] [command]
 
 Commands:
   run       connect controllers and expose virtual gamepads (default)
@@ -38,7 +38,7 @@ Flags:
 `
 
 func main() {
-	fs := flag.NewFlagSet("switch2go", flag.ExitOnError)
+	fs := flag.NewFlagSet("pad2go", flag.ExitOnError)
 	cfgPath := fs.String("config", "config.yaml", "path to the YAML config file")
 	verbose := fs.Bool("v", false, "verbose (debug) logging")
 	fs.Usage = func() {
@@ -66,7 +66,7 @@ func main() {
 	case "init":
 		err = writeConfig(*cfgPath)
 	case "version":
-		fmt.Println("switch2go", version)
+		fmt.Println("pad2go", version)
 	default:
 		fs.Usage()
 		os.Exit(2)

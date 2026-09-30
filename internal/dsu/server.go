@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/angelispatrick/switch2go/internal/protocol"
+	"github.com/angelispatrick/pad2go/internal/protocol"
 )
 
 const (

@@ -223,8 +223,8 @@ func ParseMAC(s string) (uint64, error) {
 	return v, nil
 }
 
-// Sample is a commented starter config written by `switch2go init`.
-const Sample = `# switch2go configuration.
+// Sample is a commented starter config written by `pad2go init`.
+const Sample = `# pad2go configuration.
 # Key names match the original Switch2Connect config.yaml where possible.
 
 # Virtual gamepad backend: auto | vigem (Windows) | uinput (Linux) | none

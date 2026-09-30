@@ -3,8 +3,8 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 src="${1:-/tmp/s2c-orig/src}"
-bin="$(mktemp -d)/switch2go"
-(cd "$here/.." && go build -trimpath -ldflags="-s -w" -o "$bin" ./cmd/switch2go)
+bin="$(mktemp -d)/pad2go"
+(cd "$here/.." && go build -trimpath -ldflags="-s -w" -o "$bin" ./cmd/pad2go)
 measure() { # label, command...
   local label=$1; shift
   for _ in $(seq 20); do

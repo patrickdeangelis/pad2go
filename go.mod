@@ -1,4 +1,4 @@
-module github.com/angelispatrick/switch2go
+module github.com/angelispatrick/pad2go
 
 go 1.26.1
 

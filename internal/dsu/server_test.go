@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/angelispatrick/switch2go/internal/protocol"
+	"github.com/angelispatrick/pad2go/internal/protocol"
 )
 
 func clientPacket(msgType uint32, body []byte) []byte {
