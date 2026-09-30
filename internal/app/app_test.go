@@ -1,0 +1,241 @@
+package app
+
+import (
+	"context"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/angelispatrick/switch2connect-go/internal/config"
+	"github.com/angelispatrick/switch2connect-go/internal/mapping"
+	"github.com/angelispatrick/switch2connect-go/internal/protocol"
+	"github.com/angelispatrick/switch2connect-go/internal/virtualpad"
+)
+
+type fakeDev struct {
+	addr string
+	pid  uint16
+	cal  protocol.StickCalibration
+
+	mu      sync.Mutex
+	input   func(protocol.Report)
+	leds    []int
+	rumbles []protocol.Vibration
+	closed  bool
+}
+
+func newDev(addr string, pid uint16) *fakeDev {
+	return &fakeDev{addr: addr, pid: pid, cal: protocol.StickCalibration{
+		CenterX: 2048, CenterY: 2048, MaxX: 1000, MaxY: 1000, MinX: 1000, MinY: 1000, Valid: true}}
+}
+
+func (d *fakeDev) Address() string   { return d.addr }
+func (d *fakeDev) ProductID() uint16 { return d.pid }
+func (d *fakeDev) Name() string      { return protocol.ControllerNames[d.pid] }
+func (d *fakeDev) OnInput(fn func(protocol.Report)) {
+	d.mu.Lock()
+	d.input = fn
+	d.mu.Unlock()
+}
+func (d *fakeDev) SetPlayerLEDs(_ context.Context, p int) error {
+	d.mu.Lock()
+	d.leds = append(d.leds, p)
+	d.mu.Unlock()
+	return nil
+}
+func (d *fakeDev) Rumble(v protocol.Vibration) error {
+	d.mu.Lock()
+	d.rumbles = append(d.rumbles, v)
+	d.mu.Unlock()
+	return nil
+}
+func (d *fakeDev) Calibration() (*protocol.StickCalibration, *protocol.StickCalibration) {
+	switch d.pid {
+	case protocol.JoyCon2LeftPID:
+		return &d.cal, nil
+	case protocol.JoyCon2RightPID:
+		return nil, &d.cal
+	}
+	return &d.cal, &d.cal
+}
+func (d *fakeDev) Close() error { d.closed = true; return nil }
+
+func (d *fakeDev) send(r protocol.Report) {
+	d.mu.Lock()
+	fn := d.input
+	d.mu.Unlock()
+	if fn != nil {
+		fn(r)
+	}
+}
+
+func centered(buttons uint32) protocol.Report {
+	return protocol.Report{Buttons: buttons, LeftStickRaw: [2]int{2048, 2048}, RightStickRaw: [2]int{2048, 2048}}
+}
+
+func newApp(t *testing.T, mut func(*config.Config)) (*App, *virtualpad.Recorder) {
+	t.Helper()
+	cfg := config.Default()
+	if mut != nil {
+		mut(cfg)
+	}
+	rec := &virtualpad.Recorder{}
+	return New(cfg, rec, nil, nil), rec
+}
+
+func TestSingleProController(t *testing.T) {
+	a, rec := newApp(t, nil)
+	d := newDev("P1", protocol.ProController2PID)
+	if err := a.AddDevice(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	r := centered(protocol.BtnB | protocol.BtnZR)
+	r.LeftStickRaw = [2]int{3048, 2048}
+	d.send(r)
+	pads := rec.Snapshot()
+	if len(pads) != 1 {
+		t.Fatalf("%d pads", len(pads))
+	}
+	st, _ := pads[0].State()
+	if st.Buttons != mapping.XBA || st.RightTrigger != 255 || st.LX != 32767 || st.LY != 0 {
+		t.Fatalf("state %+v", st)
+	}
+	if len(d.leds) != 1 || d.leds[0] != 1 {
+		t.Fatalf("leds %v", d.leds)
+	}
+}
+
+func TestJoyConsMergeIntoOnePad(t *testing.T) {
+	a, rec := newApp(t, nil)
+	l, r := newDev("L", protocol.JoyCon2LeftPID), newDev("R", protocol.JoyCon2RightPID)
+	ctx := context.Background()
+	if err := a.AddDevice(ctx, l); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.AddDevice(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	pads := rec.Snapshot()
+	if len(pads) != 1 {
+		t.Fatalf("expected one merged pad, got %d", len(pads))
+	}
+	lr := centered(protocol.BtnUp | protocol.BtnL)
+	lr.LeftStickRaw = [2]int{2048, 3048}
+	l.send(lr)
+	r.send(centered(protocol.BtnA))
+	st, _ := pads[0].State()
+	if st.Buttons != mapping.XBUp|mapping.XBLB|mapping.XBB || st.LY != 32767 {
+		t.Fatalf("merged state %+v", st)
+	}
+	// Both Joy-Cons show player 1.
+	if len(l.leds) == 0 || len(r.leds) == 0 || r.leds[len(r.leds)-1] != 1 {
+		t.Fatalf("leds L=%v R=%v", l.leds, r.leds)
+	}
+
+	// Removing one side leaves a working single Joy-Con pad.
+	a.RemoveDevice("L")
+	r.send(centered(protocol.BtnA))
+	st, closed := pads[0].State()
+	if closed || st.Buttons != mapping.XBB {
+		t.Fatalf("after removal %+v closed=%v", st, closed)
+	}
+	a.RemoveDevice("R")
+	if _, closed := pads[0].State(); !closed {
+		t.Fatal("empty slot should close its pad")
+	}
+}
+
+func TestNoCombineAndSlotLimit(t *testing.T) {
+	a, rec := newApp(t, func(c *config.Config) { c.CombineJoyCons = false; c.MaxControllers = 2 })
+	ctx := context.Background()
+	_ = a.AddDevice(ctx, newDev("L", protocol.JoyCon2LeftPID))
+	_ = a.AddDevice(ctx, newDev("R", protocol.JoyCon2RightPID))
+	if len(rec.Snapshot()) != 2 {
+		t.Fatal("combine disabled should give two pads")
+	}
+	if !a.Full() {
+		t.Fatal("should be full")
+	}
+	if err := a.AddDevice(ctx, newDev("P", protocol.ProController2PID)); err != ErrFull {
+		t.Fatalf("err %v", err)
+	}
+	if !a.Connected("L") || a.Connected("P") {
+		t.Fatal("Connected")
+	}
+}
+
+func TestSingleJoyConHorizontal(t *testing.T) {
+	a, rec := newApp(t, func(c *config.Config) { c.JoyConHoldMode["R"] = config.HoldHorizontal })
+	r := newDev("R", protocol.JoyCon2RightPID)
+	_ = a.AddDevice(context.Background(), r)
+	rep := centered(protocol.BtnX)
+	rep.RightStickRaw = [2]int{2048, 3048} // push "up" on the Joy-Con
+	r.send(rep)
+	st, _ := rec.Snapshot()[0].State()
+	// Sideways, X sits on the right (Xbox B position) and "up" points right.
+	if st.Buttons != mapping.XBB || st.LX != 32767 || st.RX != 0 {
+		t.Fatalf("%+v", st)
+	}
+}
+
+func TestRemapHomeToA(t *testing.T) {
+	a, rec := newApp(t, func(c *config.Config) { c.HomeMapping = "A" })
+	d := newDev("P", protocol.ProController2PID)
+	_ = a.AddDevice(context.Background(), d)
+	d.send(centered(protocol.BtnHome))
+	if st, _ := rec.Snapshot()[0].State(); st.Buttons != mapping.XBB {
+		t.Fatalf("%+v", st)
+	}
+}
+
+func TestRumbleRouting(t *testing.T) {
+	a, rec := newApp(t, nil)
+	d := newDev("P", protocol.ProController2PID)
+	_ = a.AddDevice(context.Background(), d)
+	rec.Snapshot()[0].Rumble(255, 0)
+	time.Sleep(5 * RumbleInterval)
+	rec.Snapshot()[0].Rumble(0, 0)
+	time.Sleep(3 * RumbleInterval)
+	d.mu.Lock()
+	rumbles := append([]protocol.Vibration(nil), d.rumbles...)
+	d.mu.Unlock()
+	if len(rumbles) < 3 {
+		t.Fatalf("active rumble should be re-sent, got %d writes", len(rumbles))
+	}
+	if rumbles[0].LFAmp != 796 {
+		t.Fatalf("first frame %+v", rumbles[0])
+	}
+	if last := rumbles[len(rumbles)-1]; last.LFAmp != 0 || last.HFAmp != 0 {
+		t.Fatalf("should end silent: %+v", last)
+	}
+	n := len(rumbles)
+	time.Sleep(3 * RumbleInterval)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.rumbles) != n {
+		t.Fatal("idle rumbler should not keep writing")
+	}
+}
+
+func TestCloseDisconnectsAll(t *testing.T) {
+	a, rec := newApp(t, nil)
+	d := newDev("P", protocol.ProController2PID)
+	_ = a.AddDevice(context.Background(), d)
+	a.Close()
+	if !d.closed {
+		t.Fatal("device not closed")
+	}
+	if _, closed := rec.Snapshot()[0].State(); !closed {
+		t.Fatal("pad not closed")
+	}
+}
+
+func TestAddressMAC(t *testing.T) {
+	if got := addressMAC("AA:BB:CC:DD:EE:FF"); got != [6]byte{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF} {
+		t.Fatalf("%x", got)
+	}
+	u := addressMAC("6F3C1C8E-1111-2222-3333-444455556666")
+	if u != addressMAC("6F3C1C8E-1111-2222-3333-444455556666") || u[0]&0x02 == 0 {
+		t.Fatalf("uuid-derived MAC %x", u)
+	}
+}
