@@ -2,11 +2,16 @@ package app
 
 import (
 	"context"
+	"encoding/binary"
+	"hash/crc32"
+	"math"
+	"net"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/angelispatrick/switch2go/internal/config"
+	"github.com/angelispatrick/switch2go/internal/dsu"
 	"github.com/angelispatrick/switch2go/internal/mapping"
 	"github.com/angelispatrick/switch2go/internal/protocol"
 	"github.com/angelispatrick/switch2go/internal/virtualpad"
@@ -225,4 +230,56 @@ func TestAddressMAC(t *testing.T) {
 	if u != addressMAC("6F3C1C8E-1111-2222-3333-444455556666") || u[0]&0x02 == 0 {
 		t.Fatalf("uuid-derived MAC %x", u)
 	}
+}
+
+func TestDSUPublishesOrientedMotion(t *testing.T) {
+	srv, err := dsu.Listen("127.0.0.1:0", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	cli, err := net.DialUDP("udp", nil, srv.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cli.Close()
+
+	cfg := config.Default()
+	cfg.JoyConHoldMode["R"] = config.HoldHorizontal
+	a := New(cfg, &virtualpad.Recorder{}, srv, nil)
+	r := newDev("R", protocol.JoyCon2RightPID)
+	_ = a.AddDevice(context.Background(), r)
+
+	// Subscribe to all pads (DSUC pad-data request, flags 0).
+	payload := binary.LittleEndian.AppendUint32(nil, 0x100002)
+	payload = append(payload, make([]byte, 8)...)
+	req := append([]byte("DSUC\xe9\x03"), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+	binary.LittleEndian.PutUint16(req[6:], uint16(len(payload)))
+	req = append(req, payload...)
+	binary.LittleEndian.PutUint32(req[8:], crc32.ChecksumIEEE(req))
+	cli.Write(req)
+
+	buf := make([]byte, 256)
+	for range 50 {
+		r.send(protocol.Input{Buttons: protocol.BtnX, Gyro: [3]int16{100, 0, 0}})
+		cli.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
+		n, err := cli.Read(buf)
+		if err != nil {
+			continue
+		}
+		data := buf[16:n]
+		if data[6] != dsu.ModelJoyCon {
+			t.Fatalf("model %d", data[6])
+		}
+		// X on a sideways right Joy-Con is the right-position button (Switch A → DSU circle).
+		if data[21] != 0x20 {
+			t.Fatalf("buttons %02x", data[21])
+		}
+		pitch := math.Float32frombits(binary.LittleEndian.Uint32(data[72:]))
+		if pitch != 0 {
+			t.Fatalf("gyro should be rotated for a sideways Joy-Con, pitch %v", pitch)
+		}
+		return
+	}
+	t.Fatal("no DSU packet received")
 }

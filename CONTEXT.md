@@ -14,6 +14,8 @@ Terms used across the code and docs. Keep code names aligned with these.
 
 **Player slot**: one numbered virtual Xbox 360 controller exposed to the OS, with its player LEDs.
 
+**Player pad**: the state behind one player slot (`mapping.PlayerPad`): which controllers feed it and how their Inputs become one Xbox report and per-controller motion. Remap, hold-mode rotation, pair merging and layout are applied here, in that order.
+
 **Joy-Con pair**: a left and a right Joy-Con merged into one player slot.
 
 **Hold mode**: how a *single* Joy-Con is held: Vertical (acts as the right half of a pad) or Horizontal (sideways, stick rotated, SL/SR become ZL/ZR). Joy-Cons in a pair are never rotated.

@@ -136,7 +136,7 @@ cmd/switch2go   CLI
 internal/protocol    BLE protocol: UUIDs, commands, reports, calibration, rumble
 internal/controller  per-controller handshake, commands, input, rumble
 internal/ble         tinygo.org/x/bluetooth transport and scanner
-internal/mapping     remaps, Joy-Con orientation/merging, Switch → Xbox
+internal/mapping     player pad: remaps, hold mode, Joy-Con pairs, layout, motion
 internal/app         player slots, rumble routing, DSU publishing
 internal/dsu         CemuHook/DSU UDP server
 internal/virtualpad  ViGEmBus (Windows), uinput (Linux), none

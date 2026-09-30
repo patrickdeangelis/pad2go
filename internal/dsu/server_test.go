@@ -143,15 +143,9 @@ func TestSlotsReuseMAC(t *testing.T) {
 	}
 }
 
-func TestMotionGravity(t *testing.T) {
-	// A Pro Controller lying flat reads -1 g on its raw Z axis in the original's frame.
-	a, g := Motion([3]int16{0, 0, -4096}, [3]int16{0, 0, 0}, true, 0, false, 1)
-	if a != [3]float32{0, 1, 0} || g != [3]float32{0, 0, 0} {
-		t.Fatalf("accel %v gyro %v", a, g)
-	}
-	_, g = Motion([3]int16{}, [3]int16{0, 0, -1000}, true, 0, false, 5)
-	if want := float32(1000 * 0.061 * (1 + 4.0/12)); math.Abs(float64(g[1]-want)) > 1e-3 {
-		t.Fatalf("yaw %v want %v", g[1], want)
+func TestYawScale(t *testing.T) {
+	if YawScale(1) != 1 || YawScale(0) != 1 || math.Abs(float64(YawScale(5))-(1+4.0/12)) > 1e-6 {
+		t.Fatal("yaw scale")
 	}
 }
 

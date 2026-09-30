@@ -246,7 +246,11 @@ func benchDSU() stats {
 		r, _ := protocol.ParseReport(b, opt)
 		lx, ly := cal.Apply(r.LeftStickRaw[0], r.LeftStickRaw[1], 1, 0.03)
 		rx, ry := cal.Apply(r.RightStickRaw[0], r.RightStickRaw[1], 1, 0.03)
-		a, g := dsu.Motion(r.Accel, r.Gyro, true, 0, false, 1)
+		// Motion conversion happens before publishing (outside the timed step).
+		var a, g [3]float32
+		for j := range 3 {
+			a[j], g[j] = float32(r.Accel[j])/4096, float32(r.Gyro[j])*0.061
+		}
 		pads[i] = dsu.Pad{MAC: [6]byte{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}, Model: dsu.ModelDS4, Battery: 5,
 			Buttons: r.Buttons, LX: lx, LY: ly, RX: rx, RY: ry, Accel: a, Gyro: g}
 	}

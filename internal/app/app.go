@@ -40,12 +40,11 @@ var _ Device = (*controller.Controller)(nil)
 
 // App manages player slots.
 type App struct {
-	cfg      *config.Config
-	log      *slog.Logger
-	backend  virtualpad.Backend
-	dsu      *dsu.Server
-	remapper *mapping.Remapper
-	layout   mapping.Layout
+	cfg     *config.Config
+	log     *slog.Logger
+	backend virtualpad.Backend
+	dsu     *dsu.Server
+	rules   *mapping.Rules
 
 	mu    sync.Mutex
 	slots []*slot
@@ -56,7 +55,7 @@ func New(cfg *config.Config, backend virtualpad.Backend, dsuServer *dsu.Server, 
 	if log == nil {
 		log = slog.Default()
 	}
-	remapper, warnings := mapping.NewRemapper(mapping.RemapSettings{
+	rules, warnings := mapping.NewRules(cfg.ABXYMode, mapping.RemapSettings{
 		Home: cfg.HomeMapping, Capt: cfg.CaptMapping, C: cfg.CMapping,
 		GL: cfg.GLMapping, GR: cfg.GRMapping,
 		SLL: cfg.SLLMapping, SRL: cfg.SRLMapping, SLR: cfg.SLRMapping, SRR: cfg.SRRMapping,
@@ -65,8 +64,7 @@ func New(cfg *config.Config, backend virtualpad.Backend, dsuServer *dsu.Server, 
 		log.Warn(w)
 	}
 	return &App{
-		cfg: cfg, log: log, backend: backend, dsu: dsuServer,
-		remapper: remapper, layout: mapping.ParseLayout(cfg.ABXYMode),
+		cfg: cfg, log: log, backend: backend, dsu: dsuServer, rules: rules,
 		slots: make([]*slot, cfg.MaxControllers),
 	}
 }
@@ -82,7 +80,7 @@ func (a *App) Full() bool {
 		if s == nil {
 			return false
 		}
-		if a.cfg.CombineJoyCons && s.singleJoyCon() {
+		if a.cfg.CombineJoyCons && (s.canJoin(protocol.KindJoyConLeft) || s.canJoin(protocol.KindJoyConRight)) {
 			return false
 		}
 	}
@@ -101,14 +99,16 @@ func (a *App) Connected(addr string) bool {
 	return false
 }
 
-// AddDevice attaches a connected, initialized controller to a player slot.
+// AddDevice attaches a connected, initialized controller to a player slot:
+// a lone Joy-Con waiting for its other half if combining is on, otherwise
+// the first free slot.
 func (a *App) AddDevice(ctx context.Context, d Device) error {
 	a.mu.Lock()
-	m := &member{dev: d, hold: a.cfg.HoldMode(d.Address())}
+	kind := d.Kind()
 	var target *slot
-	if a.cfg.CombineJoyCons && d.Kind().IsJoyCon() {
+	if a.cfg.CombineJoyCons && kind.IsJoyCon() {
 		for _, s := range a.slots {
-			if s != nil && s.singleJoyCon() && s.members[0].dev.Kind() != d.Kind() {
+			if s != nil && s.canJoin(kind) {
 				target = s
 				break
 			}
@@ -120,20 +120,28 @@ func (a *App) AddDevice(ctx context.Context, d Device) error {
 			a.mu.Unlock()
 			return ErrFull
 		}
-		s := &slot{app: a, player: idx + 1, states: map[*member]protocol.Input{}}
-		pad, err := a.backend.NewPad(s.onRumble)
+		s := &slot{app: a, player: idx + 1, pad: a.rules.NewPlayerPad()}
+		out, err := a.backend.NewPad(s.onRumble)
 		if err != nil {
 			a.mu.Unlock()
 			return fmt.Errorf("create virtual pad: %w", err)
 		}
-		s.pad = pad
+		s.out = out
 		a.slots[idx] = s
 		target = s
 	}
-	m.rumbler = newRumbler(d, a.log)
+	m := &member{dev: d, rumbler: newRumbler(d, a.log)}
 	target.mu.Lock()
-	target.members = append(target.members, m)
+	err := target.pad.Join(d.Address(), kind, a.cfg.HoldMode(d.Address()) == config.HoldHorizontal)
+	if err == nil {
+		target.members = append(target.members, m)
+	}
 	target.mu.Unlock()
+	if err != nil {
+		m.rumbler.stop()
+		a.mu.Unlock()
+		return err
+	}
 	player, members := target.player, target.snapshot()
 	a.mu.Unlock()
 
@@ -167,11 +175,10 @@ func (a *App) RemoveDevice(addr string) {
 		m.rumbler.stop()
 		s.mu.Lock()
 		s.members = slices.DeleteFunc(s.members, func(x *member) bool { return x == m })
-		delete(s.states, m)
-		empty := len(s.members) == 0
+		empty := s.pad.Leave(addr)
 		s.mu.Unlock()
 		if empty {
-			if err := s.pad.Close(); err != nil {
+			if err := s.out.Close(); err != nil {
 				a.log.Warn("close virtual pad", "err", err)
 			}
 			a.slots[i] = nil
@@ -201,18 +208,21 @@ func (a *App) Close() {
 
 type member struct {
 	dev     Device
-	hold    string
 	rumbler *rumbler
 }
 
+// slot is one player slot: the player pad state, the OS virtual pad it
+// drives, and the controllers feeding it.
 type slot struct {
 	app    *App
 	player int
-	pad    virtualpad.Pad
 
+	// mu serializes player pad updates and the virtual pad writes they
+	// produce, so a Joy-Con pair's reports reach the OS in order.
 	mu      sync.Mutex
+	pad     *mapping.PlayerPad
+	out     virtualpad.Pad
 	members []*member
-	states  map[*member]protocol.Input
 }
 
 func (s *slot) snapshot() []*member {
@@ -232,71 +242,40 @@ func (s *slot) find(addr string) *member {
 	return nil
 }
 
-func (s *slot) singleJoyCon() bool {
+func (s *slot) canJoin(k protocol.Kind) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.members) == 1 && s.members[0].dev.Kind().IsJoyCon()
+	return len(s.members) > 0 && s.pad.CanJoin(k)
 }
 
 func (s *slot) onInput(m *member, in protocol.Input) {
 	a := s.app
-	kept, extra := a.remapper.Apply(in.Buttons)
-	st := in
-	st.Buttons = kept
-
 	s.mu.Lock()
-	var out protocol.Input
-	kind := m.dev.Kind()
-	switch len(s.members) {
-	case 1:
-		if kind.IsJoyCon() {
-			side := mapping.LeftJoyCon
-			if kind == protocol.KindJoyConRight {
-				side = mapping.RightJoyCon
-			}
-			st = mapping.OrientSingleJoyCon(side, m.hold == config.HoldHorizontal, st)
+	f, ok := s.pad.Update(m.dev.Address(), in)
+	if ok {
+		if err := s.out.Update(f.Xbox); err != nil {
+			a.log.Debug("virtual pad update failed", "err", err)
 		}
-		st.Buttons |= extra
-		out = st
-	default:
-		st.Buttons |= extra
-		s.states[m] = st
-		var left, right protocol.Input
-		for mm, ms := range s.states {
-			if mm.dev.Kind() == protocol.KindJoyConLeft {
-				left = ms
-			} else {
-				right = ms
-			}
-		}
-		out = mapping.Merge(left, right)
 	}
 	s.mu.Unlock()
-
-	if err := s.pad.Update(mapping.ToXbox(out, a.layout, kind == protocol.KindGameCube)); err != nil {
-		a.log.Debug("virtual pad update failed", "err", err)
-	}
-	if a.dsu != nil {
-		a.publishMotion(m, in, st)
+	if ok && a.dsu != nil {
+		a.publishMotion(m.dev, in, f)
 	}
 }
 
-func (a *App) publishMotion(m *member, in, st protocol.Input) {
-	kind := m.dev.Kind()
-	side := 0
-	if kind == protocol.KindJoyConRight {
-		side = 1
-	}
-	accel, gyro := dsu.Motion(in.Accel, in.Gyro, kind.ProLike(), side, m.hold == config.HoldHorizontal, a.cfg.CemuhookSensitivity)
+func (a *App) publishMotion(d Device, in protocol.Input, f mapping.Frame) {
 	model := byte(dsu.ModelDS4)
-	if !kind.ProLike() {
+	if !d.Kind().ProLike() {
 		model = dsu.ModelJoyCon
 	}
+	gyro := f.Motion.Gyro
+	gyro[1] *= dsu.YawScale(a.cfg.CemuhookSensitivity)
+	c := f.Controller
 	a.dsu.Publish(dsu.Pad{
-		MAC: addressMAC(m.dev.Address()), Model: model,
+		MAC: addressMAC(d.Address()), Model: model,
 		Battery: dsu.BatteryLevel(protocol.BatteryPercent(in.BatteryVoltage)),
-		Buttons: st.Buttons, LX: st.Left.X, LY: st.Left.Y, RX: st.Right.X, RY: st.Right.Y,
-		Accel: accel, Gyro: gyro,
+		Buttons: c.Buttons, LX: c.Left.X, LY: c.Left.Y, RX: c.Right.X, RY: c.Right.Y,
+		Accel: f.Motion.Accel, Gyro: gyro,
 	})
 }
 

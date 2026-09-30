@@ -321,34 +321,13 @@ func encodePadData(id byte, counter uint32, p Pad, now time.Time) []byte {
 	return out
 }
 
-// Motion converts raw Switch 2 IMU samples to DSU (DS4) axes, following the
-// original's axis mapping: invert to a common frame, rotate for sideways
-// Joy-Cons, then reorder to DS4 pitch/yaw/roll.
-func Motion(accel, gyro [3]int16, proLike bool, side int, horizontal bool, yawSensitivity int) (a, g [3]float32) {
-	gx, gy, gz := float64(gyro[0]), -float64(gyro[1]), -float64(gyro[2])
-	ax, ay, az := -float64(accel[0]), -float64(accel[1]), -float64(accel[2])
-	if horizontal && !proLike {
-		if side == 1 { // right Joy-Con
-			gx, gy = -gy, gx
-			ax, ay = -ay, ax
-		} else {
-			gx, gy = gy, -gx
-			ax, ay = ay, -ax
-		}
+// YawScale is the multiplier the cemuhook_sensitivity setting (1-5) applies
+// to the yaw axis only, as in the original.
+func YawScale(sensitivity int) float32 {
+	if sensitivity <= 1 {
+		return 1
 	}
-	// Empirically tuned deg/s-per-LSB multipliers from the original (a full
-	// physical turn reads as 360° in emulators).
-	gyroScale := 0.0535
-	if proLike {
-		gyroScale = 0.061
-	}
-	yaw := 1.0
-	if yawSensitivity > 1 {
-		yaw = 1 + float64(yawSensitivity-1)/12
-	}
-	a = [3]float32{float32(ax / protocol.AccelLSBPerG), float32(az / protocol.AccelLSBPerG), float32(-ay / protocol.AccelLSBPerG)}
-	g = [3]float32{float32(gx * gyroScale), float32(gz * gyroScale * yaw), float32(-gy * gyroScale)}
-	return a, g
+	return 1 + float32(sensitivity-1)/12
 }
 
 // BatteryLevel maps a percentage to the DSU battery enum.
