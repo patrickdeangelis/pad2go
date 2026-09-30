@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -267,4 +268,59 @@ func TestFormatMAC(t *testing.T) {
 	if got := FormatMAC(0xAABBCCDDEEFF); got != "AA:BB:CC:DD:EE:FF" {
 		t.Fatal(got)
 	}
+}
+
+func TestEvents(t *testing.T) {
+	radio := newRadio()
+	var mu sync.Mutex
+	var stages []Stage
+	cfg := config.Default()
+	cfg.ConnectHaptics = false
+	log := slog.New(slog.DiscardHandler)
+	a := app.New(cfg, &virtualpad.Recorder{}, nil, log)
+	m := &Manager{Radio: radio, App: a, Config: cfg, Log: log, Backoff: 5 * time.Millisecond,
+		OnEvent: func(e Event) {
+			mu.Lock()
+			stages = append(stages, e.Stage)
+			mu.Unlock()
+		}}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { m.Run(ctx); close(done) }()
+	defer func() { cancel(); <-done; a.Close() }()
+
+	radio.advertise("F", protocol.ProController2PID, 0x010203040506)
+	radio.advertise("L", protocol.JoyCon2LeftPID, 0)
+	eventually(t, "attach", func() bool { return a.Connected("L") })
+	radio.drop("L")
+	eventually(t, "dropped", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Contains(stages, Dropped)
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	want := []Stage{Scanning, Ignored, Found, Connecting, Pairing, Ready}
+	i := 0
+	for _, s := range stages {
+		if i < len(want) && s == want[i] {
+			i++
+		}
+	}
+	if i != len(want) {
+		t.Fatalf("stages %v, want subsequence %v", stages, want)
+	}
+	if n := countStage(stages, Ignored); n != 1 {
+		t.Fatalf("foreign controller reported %d times", n)
+	}
+}
+
+func countStage(stages []Stage, s Stage) int {
+	n := 0
+	for _, x := range stages {
+		if x == s {
+			n++
+		}
+	}
+	return n
 }

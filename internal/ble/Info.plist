@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.angelispatrick.pad2go</string>
+	<key>CFBundleName</key>
+	<string>pad2go</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>pad2go usa o Bluetooth para conectar seus controles.</string>
+</dict>
+</plist>

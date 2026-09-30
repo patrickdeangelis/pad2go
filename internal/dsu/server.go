@@ -99,6 +99,20 @@ func (s *Server) Addr() net.Addr { return s.conn.LocalAddr() }
 // Close stops the server.
 func (s *Server) Close() error { return s.conn.Close() }
 
+// Clients returns how many DSU clients (emulators) are currently subscribed.
+func (s *Server) Clients() int {
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, c := range s.clients {
+		if c.alive(now) {
+			n++
+		}
+	}
+	return n
+}
+
 func (s *Server) serve() {
 	buf := make([]byte, 1024)
 	for {

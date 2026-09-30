@@ -75,6 +75,9 @@ type Config struct {
 	SRRMapping  string `yaml:"srr_mapping"`
 	// ButtonRemaps holds per-emulation-mode overrides; the "xbox" entry applies.
 	ButtonRemaps map[string]Remaps `yaml:"button_remaps"`
+
+	// UIPort is the local web interface port on 127.0.0.1 (0 disables it).
+	UIPort int `yaml:"ui_port"`
 }
 
 // Remaps is a per-mode override block from button_remaps.
@@ -112,6 +115,7 @@ func Default() *Config {
 		CemuhookHost:        "127.0.0.1",
 		CemuhookPort:        26760,
 		CemuhookSensitivity: 1,
+		UIPort:              7430,
 		HomeMapping:         "Default", CaptMapping: "Default", CMapping: "Default",
 		GLMapping: "Default", GRMapping: "Default",
 		SLLMapping: "Default", SRLMapping: "Default", SLRMapping: "Default", SRRMapping: "Default",
@@ -178,6 +182,36 @@ func (c *Config) Validate() error {
 	}
 	if c.MaxControllers < 1 || c.MaxControllers > 8 {
 		return fmt.Errorf("max_controllers: want 1-8, got %d", c.MaxControllers)
+	}
+	if c.CemuhookPort < 1 || c.CemuhookPort > 65535 {
+		return fmt.Errorf("cemuhook_port: want 1-65535, got %d", c.CemuhookPort)
+	}
+	if strings.TrimSpace(c.CemuhookHost) == "" {
+		return errors.New("cemuhook_host: must not be empty")
+	}
+	if c.CemuhookSensitivity < 1 || c.CemuhookSensitivity > 5 {
+		return fmt.Errorf("cemuhook_sensitivity: want 1-5, got %d", c.CemuhookSensitivity)
+	}
+	if c.UIPort < 0 || c.UIPort > 65535 {
+		return fmt.Errorf("ui_port: want 0-65535, got %d", c.UIPort)
+	}
+	for family, v := range c.JoystickDeadzonePercent {
+		if v < 0 || v > 50 {
+			return fmt.Errorf("joystick_deadzone_percent.%s: want 0-50, got %v", family, v)
+		}
+	}
+	for addr, mode := range c.JoyConHoldMode {
+		if mode != HoldVertical && mode != HoldHorizontal {
+			return fmt.Errorf("joycon_hold_mode.%s: want Vertical or Horizontal, got %q", addr, mode)
+		}
+	}
+	if c.DefaultHoldMode != HoldVertical && c.DefaultHoldMode != HoldHorizontal {
+		return fmt.Errorf("default_hold_mode: want Vertical or Horizontal, got %q", c.DefaultHoldMode)
+	}
+	switch c.GCTriggerMode {
+	case "Hair Trigger", "100% at Bump", "100% at Max":
+	default:
+		return fmt.Errorf("gc_trigger_mode: unknown mode %q", c.GCTriggerMode)
 	}
 	if c.HostMAC != "" {
 		if _, err := ParseMAC(c.HostMAC); err != nil {
@@ -257,6 +291,9 @@ gyro_passthrough_mode: Default
 cemuhook_host: 127.0.0.1
 cemuhook_port: 26760
 cemuhook_sensitivity: 1
+
+# Local web interface at http://127.0.0.1:<ui_port> (0 disables it).
+ui_port: 7430
 
 # Extra buttons: Default | None | any Switch button name (A, B, X, Y, L, R, ZL,
 # ZR, MINUS, PLUS, L_STK, R_STK, UP, DOWN, LEFT, RIGHT, HOME, CAPT)

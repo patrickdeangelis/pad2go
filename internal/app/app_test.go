@@ -283,3 +283,68 @@ func TestDSUPublishesOrientedMotion(t *testing.T) {
 	}
 	t.Fatal("no DSU packet received")
 }
+
+func TestPlayersWatchRumbleDisconnect(t *testing.T) {
+	a, _ := newApp(t, nil)
+	ctx := context.Background()
+	l, r, p := newDev("L", protocol.JoyCon2LeftPID), newDev("R", protocol.JoyCon2RightPID), newDev("P", protocol.ProController2PID)
+	for _, d := range []*fakeDev{l, r, p} {
+		if err := a.AddDevice(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	changes := 0
+	a.OnChange(func() { changes++ })
+
+	l.send(protocol.Input{BatteryVoltage: 3.75})
+	players := a.Players()
+	if len(players) != 2 || players[0].Number != 1 || len(players[0].Members) != 2 || players[1].Number != 2 {
+		t.Fatalf("players %+v", players)
+	}
+	if players[0].Members[0].Battery != 50 || players[0].Members[1].Battery != -1 {
+		t.Fatalf("batteries %+v", players[0].Members)
+	}
+
+	samples, cancel, err := a.Watch(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.send(protocol.Input{Buttons: protocol.BtnB, Gyro: [3]int16{0, 0, -1000}})
+	select {
+	case s := <-samples:
+		if s.Xbox.Buttons != mapping.XBA || s.Gyro[1] == 0 {
+			t.Fatalf("sample %+v", s)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no sample")
+	}
+	cancel()
+	if _, _, err := a.Watch(3); err != ErrNoPlayer {
+		t.Fatalf("watch empty slot: %v", err)
+	}
+
+	if err := a.TestRumble(2, 10*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(4 * RumbleInterval)
+	p.mu.Lock()
+	n := len(p.rumbles)
+	last := p.rumbles[n-1]
+	p.mu.Unlock()
+	if n < 2 || last.LFAmp != 0 {
+		t.Fatalf("test rumble should buzz then stop: %d writes, last %+v", n, last)
+	}
+
+	if err := a.Disconnect(1); err != nil {
+		t.Fatal(err)
+	}
+	if !l.closed || !r.closed || a.Connected("L") {
+		t.Fatal("pair not disconnected")
+	}
+	if got := a.Players(); len(got) != 1 || got[0].Number != 2 {
+		t.Fatalf("player 2 must keep its number: %+v", got)
+	}
+	if changes < 2 {
+		t.Fatalf("OnChange called %d times", changes)
+	}
+}

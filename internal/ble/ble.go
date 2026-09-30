@@ -1,3 +1,5 @@
+//go:build !nobluetooth
+
 // Package ble discovers and connects Switch 2 controllers using
 // tinygo.org/x/bluetooth (WinRT on Windows, BlueZ on Linux, CoreBluetooth on
 // macOS).

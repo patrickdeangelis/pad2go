@@ -32,11 +32,15 @@ func Open(kind string) (Backend, error) {
 	case "none":
 		return Null{}, nil
 	case "auto":
-		if b, err := openPlatform(); err == nil {
-			return b, nil
-		} else {
-			return nil, fmt.Errorf("no virtual gamepad backend available (%w); set output: none to run without one", err)
+		if platformName == "" {
+			// No virtual gamepads here (macOS): run motion-only (DSU).
+			return Null{}, nil
 		}
+		b, err := openPlatform()
+		if err != nil {
+			return nil, fmt.Errorf("virtual gamepad output unavailable (%w); set output: none to run motion-only", err)
+		}
+		return b, nil
 	case "vigem", "uinput":
 		if platformName != kind {
 			return nil, fmt.Errorf("output %q is not available on this platform", kind)
@@ -110,3 +114,16 @@ func (p *RecordedPad) State() (mapping.XboxState, bool) {
 	defer p.mu.Unlock()
 	return p.Last, p.Closed
 }
+
+// Check is one system prerequisite for the virtual gamepad output.
+type Check struct {
+	Name   string
+	OK     bool
+	Detail string
+	// Help is a stable key the UI uses to pick instructions ("output").
+	Help string
+}
+
+// Diagnose checks this platform's virtual gamepad prerequisites. It returns
+// nothing where no virtual output exists.
+func Diagnose() []Check { return diagnose() }

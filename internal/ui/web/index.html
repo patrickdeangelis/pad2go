@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Pad2Go</title>
+  <link rel="icon" href="assets/pad2go-icon.png" type="image/png">
+  <link rel="stylesheet" href="fonts.css">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Ir para o conteúdo</a>
+  <div id="pad2go" class="app">
+    <header class="app-header">
+      <div class="brand"><img src="assets/pad2go-icon.png" width="48" height="48" alt=""><div><strong>Pad2Go</strong><span>Seus controles, conectados.</span></div></div>
+      <div class="header-actions">
+        <span id="platform" class="platform"></span>
+        <button id="theme" class="icon-button" type="button" aria-label="Ativar tema escuro"></button>
+      </div>
+    </header>
+    <nav class="app-nav" role="tablist" aria-label="Seções do Pad2Go">
+      <button id="tab-controllers" type="button" role="tab" aria-selected="true" aria-controls="panel-controllers" data-view="controllers"><span data-icon="gamepad"></span>Controles</button>
+      <button id="tab-motion" type="button" role="tab" aria-selected="false" aria-controls="panel-motion" data-view="motion" tabindex="-1"><span data-icon="orbit"></span>Movimento</button>
+      <button id="tab-settings" type="button" role="tab" aria-selected="false" aria-controls="panel-settings" data-view="settings" tabindex="-1"><span data-icon="sliders"></span>Ajustes</button>
+    </nav>
+    <main id="main-content" tabindex="-1">
+      <div id="offline" class="notice" role="alert" hidden><strong>Sem conexão com o Pad2Go.</strong><p>O programa foi encerrado ou reiniciado. Tentando reconectar…</p></div>
+      <div id="pending" class="pending" hidden><div><strong>Alterações salvas no config.yaml.</strong><p>Reinicie as conexões para aplicar. Depois, pressione um botão nos controles para reconectá-los.</p></div><button id="apply-config" type="button" class="button primary">Reiniciar conexões</button></div>
+      <div id="system-alert" class="notice" role="alert" hidden></div>
+      <section id="panel-controllers" role="tabpanel" aria-labelledby="tab-controllers">
+        <div class="page-heading"><div><h1>Controles</h1><p id="controllers-subtitle">Prontos para o próximo jogo.</p></div><button id="connect" type="button" class="button primary"><span data-icon="plus"></span>Conectar controle</button></div>
+        <div id="platform-notice" class="notice neutral" hidden>macOS oferece movimento via DSU. A saída de controle Xbox virtual não está disponível nesta plataforma.</div>
+        <section id="discovery" class="discovery" hidden aria-labelledby="discovery-title">
+          <div class="section-heading"><div><h2 id="discovery-title">Conexão automática</h2><p>Segure SYNC em um controle novo. Em um controle já pareado, pressione qualquer botão.</p></div><button id="hide-discovery" class="text-button" type="button">Fechar</button></div>
+          <ol id="discovery-steps" class="steps" aria-label="Etapas de conexão"></ol>
+          <p id="discovery-status" class="discovery-status" role="status" aria-live="polite"></p>
+          <div id="foreign-action" hidden><p>Este controle está pareado com outro PC. A preferência será salva e as conexões serão reiniciadas.</p><button id="accept-foreign" type="button" class="button">Aceitar mesmo assim</button></div>
+        </section>
+        <div class="list-heading"><h2>Seus jogadores</h2><span id="player-count"></span></div>
+        <div id="device-list" class="device-grid"></div>
+        <section id="test-panel" class="test-panel" hidden aria-labelledby="test-title">
+          <div class="section-heading"><div><h2 id="test-title">Teste de entrada</h2><p>Aperte os botões no controle. As entradas enviadas aos jogos aparecem aqui.</p></div><button id="close-test" class="text-button" type="button">Fechar teste</button></div>
+          <div class="input-layout">
+            <div class="input-pad" role="img" aria-label="Controle com visualização das entradas recebidas">
+              <div class="input-triggers"><span id="pad-l" class="pad-key">LB</span><span id="pad-r" class="pad-key">RB</span></div>
+              <div class="input-pad-body"><div class="pad-left"><div class="stick-field"><span class="stick-marker" id="stick-left"></span></div><div class="dpad"><span id="pad-up" class="pad-key">↑</span><span id="pad-left" class="pad-key">←</span><span id="pad-right" class="pad-key">→</span><span id="pad-down" class="pad-key">↓</span></div></div><span class="pad-wordmark">Pad2Go</span><div class="pad-right"><div class="face-buttons"><span id="pad-y" class="pad-key">Y</span><span id="pad-x" class="pad-key">X</span><span id="pad-b" class="pad-key">B</span><span id="pad-a" class="pad-key">A</span></div><div class="stick-field"><span class="stick-marker" id="stick-right"></span></div></div></div>
+            </div>
+            <div class="input-readings"><div><span>Analógico esquerdo</span><output id="left-values">X 0,00 · Y 0,00</output></div><div><span>Analógico direito</span><output id="right-values">X 0,00 · Y 0,00</output></div><div id="trigger-readings"><label>Gatilho LT <output id="trigger-l-value">0%</output><progress id="trigger-l" max="100" value="0"></progress></label><label>Gatilho RT <output id="trigger-r-value">0%</output><progress id="trigger-r" max="100" value="0"></progress></label></div><div><span>Giroscópio · °/s</span><output id="gyro-values">X 0,0 · Y 0,0 · Z 0,0</output></div></div>
+          </div>
+          <div class="test-actions"><button id="rumble" type="button" class="button"><span data-icon="vibrate"></span>Vibrar</button><span id="input-state" class="secondary" role="status">Aguardando entradas.</span></div>
+        </section>
+        <div class="connection-options"><div class="connection-path"><div class="connection-node"><span data-icon="bluetooth"></span><div><strong id="bluetooth-state">Bluetooth ativo</strong><span>Busca automática</span></div></div><span data-icon="arrow-right"></span><div class="connection-node"><span data-icon="monitor"></span><div><strong id="output-name">Xbox 360 virtual</strong><span id="output-detail"></span></div></div></div><label class="switch-row"><div><strong>Unir Joy-Cons</strong><span>Um par, um jogador · reiniciar para aplicar</span></div><input type="checkbox" class="switch" data-config="combine"></label><label class="switch-row"><div><strong>Movimento</strong><span>Giroscópio via DSU · reiniciar para aplicar</span></div><input type="checkbox" class="switch" data-config="gyro"></label></div>
+      </section>
+      <section id="panel-motion" role="tabpanel" aria-labelledby="tab-motion" hidden>
+        <div class="page-heading"><div><h1>Movimento</h1><p>Giroscópio para seus emuladores.</p></div></div>
+        <div class="settings-content">
+          <label class="switch-row"><div><strong>Enviar movimento</strong><span>Servidor CemuHook / DSU · reiniciar para aplicar</span></div><input type="checkbox" class="switch" data-config="gyro"></label>
+          <div class="server-card"><div class="server-heading"><div><span id="motion-state" class="status">Desativado</span><p id="motion-address"></p></div><button id="copy-address" type="button" class="button"><span data-icon="copy"></span>Copiar</button></div><div class="client-count"><span data-icon="radio"></span><strong id="client-count">0 clientes DSU recebendo</strong></div><p class="secondary">Contagem de inscrições ativas. O protocolo não informa o nome do emulador.</p><p id="copy-result" role="status"></p></div>
+          <div class="field"><div class="field-heading"><label for="sensitivity">Sensibilidade horizontal</label><output id="sensitivity-value"></output></div><input id="sensitivity" type="range" min="1" max="5" step="1" data-config="sensitivity"><p>Níveis 1–5 ajustam apenas a rotação horizontal, de 1,00× a 1,33×. Reiniciar para aplicar.</p></div>
+          <details><summary>Endereço e porta</summary><div class="form-grid"><label>Endereço do servidor<input id="host" type="text" data-config="host" aria-describedby="host-error"><span class="field-error" id="host-error"></span></label><label>Porta<input id="port" type="number" min="1" max="65535" data-config="port" aria-describedby="port-error"><span class="field-error" id="port-error"></span></label></div><p class="field-help">Use o mesmo endereço e porta no emulador. Reiniciar para aplicar.</p></details>
+        </div>
+      </section>
+      <section id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+        <div class="page-heading"><div><h1>Ajustes</h1><p>Salvos automaticamente no config.yaml. Reinicie as conexões para aplicar.</p></div></div>
+        <div class="settings-content">
+          <div class="field first"><h2>Layout dos botões</h2><p>Escolha como A, B, X e Y são enviados aos jogos.</p><div class="choices"><button type="button" data-layout="Xbox" aria-pressed="true"><strong>Pela posição</strong><span>Switch B → Xbox A</span></button><button type="button" data-layout="Switch" aria-pressed="false"><strong>Pela letra</strong><span>A → A</span></button></div></div>
+          <div class="field"><div class="field-heading"><label for="vibration">Vibração</label><output id="vibration-value"></output></div><input id="vibration" type="range" min="0" max="10" data-config="vibration"><p>Força do retorno dos jogos. Padrão: 100%. Reiniciar para aplicar.</p></div>
+          <details><summary>Analógicos e gatilhos</summary><div class="form-grid"><label>Zona morta · Joy-Con (%)<input type="number" min="0" max="50" data-deadzone="joycon"></label><label>Zona morta · Pro Controller (%)<input type="number" min="0" max="50" data-deadzone="pro"></label><label>Zona morta · GameCube (%)<input type="number" min="0" max="50" data-deadzone="gc"></label><label>Gatilhos · GameCube<select data-config="trigger"><option value="100% at Bump">Máximo no clique</option><option value="100% at Max">Máximo no fim do curso</option><option value="Hair Trigger">Toque leve</option></select></label></div><p class="field-help">Ajustes por família. Reiniciar para aplicar.</p></details>
+          <details><summary>Botões extras</summary><p class="field-help">Redirecione para outro botão do controle. Reiniciar para aplicar.</p><div id="remaps" class="form-grid"></div></details>
+          <details><summary>Conexão</summary><div class="form-grid"><label>Saída<select id="backend" data-config="backend"><option value="auto">Automática</option><option value="vigem">ViGEmBus · Windows</option><option value="uinput">uinput · Linux</option><option value="none">Somente movimento</option></select></label><label>Máximo de jogadores<select data-config="max"><option>4</option><option>8</option></select></label><label>Endereço Bluetooth do PC<input id="host-mac" type="text" data-config="hostMac" placeholder="Detectar automaticamente" aria-describedby="hostMac-error"><span id="hostMac-error" class="field-error"></span></label><label>Posição padrão do Joy-Con avulso<select data-config="hold"><option value="Vertical">Vertical</option><option value="Horizontal">Horizontal</option></select></label></div><label class="switch-row"><div><strong>Vibrar ao conectar</strong></div><input type="checkbox" class="switch" data-config="haptics"></label><label class="switch-row"><div><strong>Aceitar controles de outro PC</strong><span>Permitir conexão sem novo pareamento</span></div><input type="checkbox" class="switch" data-config="foreign"></label><p class="field-help">Reiniciar para aplicar.</p></details>
+          <section class="notification-settings" aria-labelledby="notification-title"><h2 id="notification-title">Notificações</h2><label class="switch-row"><div><strong>Avisos de conexão</strong><span>Mostrar quando um controle conecta ou desconecta</span></div><input id="connection-notifications" type="checkbox" class="switch"></label><button id="desktop-notifications" class="button" type="button">Ativar notificações no desktop</button><p id="notification-permission" class="field-help">Os avisos aparecem no canto da janela. Notificações nativas precisam de permissão do navegador.</p></section>
+          <section class="diagnostics" aria-labelledby="diagnostics-title"><div class="section-heading"><div><h2 id="diagnostics-title">Verificação do sistema</h2><p>Bluetooth e saída de controle virtual deste computador.</p></div><button id="check-system" type="button" class="button">Verificar</button></div><div id="diagnostic-results"></div></section>
+        </div>
+      </section>
+      <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
+    </main>
+    <footer class="app-footer"><span id="connection-summary">Conectando ao Pad2Go…</span><span id="version"></span></footer>
+  </div>
+  <div id="connection-toasts" class="connection-toasts" aria-live="polite" aria-relevant="additions" aria-label="Avisos de conexão"></div>
+</body>
+</html>

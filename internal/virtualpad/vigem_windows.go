@@ -158,3 +158,25 @@ func (p *vigemPad) Close() error {
 	procTargetFree.Call(p.target)
 	return nil
 }
+
+func diagnose() []Check {
+	dll := Check{Name: "ViGEmClient.dll", OK: true, Detail: "encontrado", Help: "output"}
+	bus := Check{Name: "ViGEmBus", OK: true, Detail: "instalado", Help: "output"}
+	if err := vigemDLL.Load(); err != nil {
+		dll.OK, dll.Detail = false, "não encontrado"
+		bus.OK, bus.Detail = false, "não verificado (requer ViGEmClient.dll)"
+		return []Check{bus, dll}
+	}
+	client, _, _ := procAlloc.Call()
+	if client == 0 {
+		bus.OK, bus.Detail = false, "falha ao inicializar"
+		return []Check{bus, dll}
+	}
+	defer procFree.Call(client)
+	if r, _, _ := procConnect.Call(client); r != vigemErrorNone {
+		bus.OK, bus.Detail = false, "não instalado"
+	} else {
+		procDisconnect.Call(client)
+	}
+	return []Check{bus, dll}
+}

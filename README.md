@@ -18,31 +18,44 @@ Ported from upstream commit `e5dd90b` (2026-09-13).
 
 ## Quick start
 
-```bash
-go install github.com/angelispatrick/pad2go/cmd/pad2go@latest
-```
+pad2go is a single executable. Running it opens the Pad2Go window, which
+shows players, connection progress, an input test, motion (DSU) and settings.
+Settings are saved to `config.yaml` in your user config folder, or to
+`./config.yaml` if one exists; use `-config` to choose another.
 
-```bash
-pad2go init
-```
-
-```bash
-pad2go
-```
-
-Then hold **SYNC** on an unpaired controller (or press any button on one
-already paired to this PC). Controllers paired by this tool reconnect with a
+Then hold **SYNC** on an unpaired controller, or press any button on one
+already paired to this PC. Controllers paired by pad2go reconnect with a
 button press next time.
 
-Other commands: `pad2go scan` lists nearby controllers without
-connecting; `-v` turns on debug logging; `-config path.yaml` picks a config file.
+Flags:
+- `-headless`: run without a window (add `-open` to use the browser).
+- `-demo`: simulate controllers, to try the interface without hardware.
+- `-v`: debug logging.
+
+`pad2go.log` is written next to the config file.
+
+### Build
+
+```bash
+go build ./cmd/pad2go
+```
+
+The window uses the system WebView through cgo:
+- **macOS:** WKWebView. `packaging/build-macos-app.sh` wraps the executable in
+  `Pad2Go.app`, so a double-click opens the window instead of Terminal and
+  macOS asks for Bluetooth permission for Pad2Go.
+- **Windows:** WebView2, which is preinstalled on Windows 10/11. Build with
+  `-ldflags "-H windowsgui"` so no console opens; a MinGW-w64 toolchain is
+  needed for cgo.
+- **Linux:** WebKitGTK (`libwebkit2gtk-4.0`).
+
+The `nowebview` build tag drops the window and opens the browser instead.
+`nobluetooth` builds without Bluetooth, for development with `-demo`.
 
 ### Windows
 
 1. Install the [ViGEmBus](https://github.com/nefarius/ViGEmBus) driver.
-2. Put `ViGEmClient.dll` (x64) next to `pad2go.exe`. It ships with
-   ViGEm-based tools (e.g. the `vgamepad` Python package) or can be built from
-   [ViGEmClient](https://github.com/nefarius/ViGEmClient).
+2. Put `ViGEmClient.dll` (x64) next to `pad2go.exe`.
 3. Hide the physical controller from games with HidHide if you see doubled input.
 
 ### Linux
@@ -57,9 +70,9 @@ Add a udev rule (e.g. `KERNEL=="uinput", GROUP="input", MODE="0660"`) or run as 
 
 ### macOS
 
-macOS has no virtual gamepad API, so set `output: none` and
-`gyro_passthrough_mode: Cemuhook` to feed motion to emulators. macOS does not
-expose the adapter MAC, so set `host_mac` if you want pairing.
+macOS has no virtual gamepad API, so pad2go runs motion-only: turn on
+**Movimento** to feed gyro to emulators over DSU. macOS doesn't expose the
+adapter MAC, so set it in Ajustes → Conexão if you want pairing.
 
 ## Configuration
 
@@ -145,6 +158,10 @@ internal/mapping     player pad: remaps, hold mode, Joy-Con pairs, layout, motio
 internal/app         player slots, rumble routing, DSU publishing
 internal/dsu         CemuHook/DSU UDP server
 internal/virtualpad  ViGEmBus (Windows), uinput (Linux), none
+internal/service     runtime supervisor: config, restart, snapshot, events
+internal/ui          embedded web interface, JSON API, SSE
+internal/window      native window (system WebView)
+internal/demo        simulated radio for -demo
 internal/config      YAML config
 ```
 

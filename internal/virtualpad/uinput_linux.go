@@ -308,3 +308,17 @@ func (p *uinputPad) Close() error {
 	err := ioctl(p.f.Fd(), uiDevDestroy, 0)
 	return errors.Join(err, p.f.Close())
 }
+
+func diagnose() []Check {
+	c := Check{Name: "/dev/uinput", OK: true, Detail: "acessível", Help: "output"}
+	f, err := os.OpenFile("/dev/uinput", os.O_RDWR, 0)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		c.OK, c.Detail = false, "não encontrado"
+	case err != nil:
+		c.OK, c.Detail = false, "sem permissão"
+	default:
+		f.Close()
+	}
+	return []Check{c}
+}

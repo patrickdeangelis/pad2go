@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -91,5 +92,62 @@ func TestHoldModeAndDeadzone(t *testing.T) {
 	}
 	if c.CemuhookEnabled() {
 		t.Fatal("cemuhook should default off")
+	}
+}
+
+func TestSaveRoundTripKeepsCommentsAndUnknownKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.yaml")
+	orig := "# my notes\nunknown_key: keep me\nabxy_mode: Xbox # layout\nbutton_remaps:\n  xbox:\n    abxy_mode: Xbox\n    rumble_mode: Switch\n"
+	if err := os.WriteFile(path, []byte(orig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ABXYMode = "Switch"
+	cfg.JoyConHoldMode["AA:BB:CC:DD:EE:FF"] = HoldHorizontal
+	cfg.JoystickDeadzonePercent["joycon"] = 7
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	for _, want := range []string{"# my notes", "unknown_key: keep me", "# layout", "rumble_mode: Switch"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("saved file lost %q:\n%s", want, data)
+		}
+	}
+	again, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// button_remaps.xbox.abxy_mode was updated too, so it doesn't override.
+	if again.ABXYMode != "Switch" || again.HoldMode("AA:BB:CC:DD:EE:FF") != HoldHorizontal || again.Deadzone("joycon") != 0.07 {
+		t.Fatalf("reloaded %+v", again)
+	}
+}
+
+func TestSaveNewFileStartsFromSample(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "new.yaml")
+	cfg := Default()
+	cfg.VibrationStrength = 8
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "# Virtual gamepad backend") {
+		t.Fatal("sample comments missing")
+	}
+	again, _ := Load(path)
+	if again.VibrationStrength != 8 {
+		t.Fatalf("vibration %d", again.VibrationStrength)
+	}
+}
+
+func TestSaveRejectsInvalid(t *testing.T) {
+	cfg := Default()
+	cfg.CemuhookPort = 0
+	if err := cfg.Save(filepath.Join(t.TempDir(), "x.yaml")); err == nil {
+		t.Fatal("invalid config must not be saved")
 	}
 }

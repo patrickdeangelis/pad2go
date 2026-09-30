@@ -3,6 +3,7 @@ module github.com/angelispatrick/pad2go
 go 1.26.1
 
 require (
+	github.com/webview/webview_go v0.0.0-20240831120633-6173450d4dd6
 	golang.org/x/sys v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
 	tinygo.org/x/bluetooth v0.16.0

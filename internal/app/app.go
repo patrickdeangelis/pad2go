@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/angelispatrick/pad2go/internal/config"
@@ -48,6 +49,8 @@ type App struct {
 
 	mu    sync.Mutex
 	slots []*slot
+
+	onChange func()
 }
 
 // New creates an app. dsuServer may be nil.
@@ -131,6 +134,7 @@ func (a *App) AddDevice(ctx context.Context, d Device) error {
 		target = s
 	}
 	m := &member{dev: d, rumbler: newRumbler(d, a.log)}
+	m.battery.Store(-1)
 	target.mu.Lock()
 	err := target.pad.Join(d.Address(), kind, a.cfg.HoldMode(d.Address()) == config.HoldHorizontal)
 	if err == nil {
@@ -156,11 +160,18 @@ func (a *App) AddDevice(ctx context.Context, d Device) error {
 		names[i] = mm.dev.Name()
 	}
 	a.log.Info("controller assigned", "player", player, "controllers", names)
+	a.changed()
 	return nil
 }
 
 // RemoveDevice detaches a controller (e.g. after it disconnects).
 func (a *App) RemoveDevice(addr string) {
+	if a.removeDevice(addr) {
+		a.changed()
+	}
+}
+
+func (a *App) removeDevice(addr string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for i, s := range a.slots {
@@ -184,8 +195,9 @@ func (a *App) RemoveDevice(addr string) {
 			a.slots[i] = nil
 		}
 		a.log.Info("controller removed", "addr", addr, "player", s.player)
-		return
+		return true
 	}
+	return false
 }
 
 // Close disconnects every controller and closes every virtual pad.
@@ -209,6 +221,7 @@ func (a *App) Close() {
 type member struct {
 	dev     Device
 	rumbler *rumbler
+	battery atomic.Int32 // percent, -1 until known
 }
 
 // slot is one player slot: the player pad state, the OS virtual pad it
@@ -219,10 +232,11 @@ type slot struct {
 
 	// mu serializes player pad updates and the virtual pad writes they
 	// produce, so a Joy-Con pair's reports reach the OS in order.
-	mu      sync.Mutex
-	pad     *mapping.PlayerPad
-	out     virtualpad.Pad
-	members []*member
+	mu       sync.Mutex
+	pad      *mapping.PlayerPad
+	out      virtualpad.Pad
+	members  []*member
+	watchers map[chan Sample]struct{}
 }
 
 func (s *slot) snapshot() []*member {
@@ -256,8 +270,17 @@ func (s *slot) onInput(m *member, in protocol.Input) {
 		if err := s.out.Update(f.Xbox); err != nil {
 			a.log.Debug("virtual pad update failed", "err", err)
 		}
+		for w := range s.watchers {
+			select {
+			case w <- Sample{Xbox: f.Xbox, Gyro: f.Motion.Gyro, AnalogTriggers: in.AnalogTriggers}:
+			default: // slow watcher: drop the sample
+			}
+		}
 	}
 	s.mu.Unlock()
+	if m.dev.Kind() != protocol.KindGameCube { // the GameCube pad reports no battery
+		m.battery.Store(int32(protocol.BatteryPercent(in.BatteryVoltage)))
+	}
 	if ok && a.dsu != nil {
 		a.publishMotion(m.dev, in, f)
 	}
@@ -374,4 +397,130 @@ func addressMAC(addr string) [6]byte {
 	}
 	out[0] = out[0]&0xFE | 0x02 // locally administered, unicast
 	return out
+}
+
+// OnChange registers fn to run (outside the app's locks) whenever a
+// controller is attached or removed.
+func (a *App) OnChange(fn func()) {
+	a.mu.Lock()
+	a.onChange = fn
+	a.mu.Unlock()
+}
+
+func (a *App) changed() {
+	a.mu.Lock()
+	fn := a.onChange
+	a.mu.Unlock()
+	if fn != nil {
+		fn()
+	}
+}
+
+// Player is a snapshot of one player slot.
+type Player struct {
+	Number  int
+	Members []Member
+}
+
+// Member is one controller in a player slot.
+type Member struct {
+	Addr    string
+	Name    string
+	Kind    protocol.Kind
+	Battery int // percent; -1 when unknown
+}
+
+// Players returns the occupied player slots in order.
+func (a *App) Players() []Player {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var out []Player
+	for _, s := range a.slots {
+		if s == nil {
+			continue
+		}
+		p := Player{Number: s.player}
+		for _, m := range s.snapshot() {
+			p.Members = append(p.Members, Member{
+				Addr: m.dev.Address(), Name: m.dev.Name(), Kind: m.dev.Kind(), Battery: int(m.battery.Load()),
+			})
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// Sample is what one input report did to a player slot, for input tests.
+type Sample struct {
+	Xbox           mapping.XboxState
+	Gyro           [3]float32 // deg/s of the reporting controller
+	AnalogTriggers bool
+}
+
+// ErrNoPlayer is returned for an empty player slot.
+var ErrNoPlayer = errors.New("no controller in this player slot")
+
+func (a *App) slotFor(player int) *slot {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if player < 1 || player > len(a.slots) {
+		return nil
+	}
+	return a.slots[player-1]
+}
+
+// Watch streams the player's samples until cancel is called. Samples are
+// dropped rather than queued when the reader falls behind.
+func (a *App) Watch(player int) (samples <-chan Sample, cancel func(), err error) {
+	s := a.slotFor(player)
+	if s == nil {
+		return nil, nil, ErrNoPlayer
+	}
+	ch := make(chan Sample, 8)
+	s.mu.Lock()
+	if s.watchers == nil {
+		s.watchers = map[chan Sample]struct{}{}
+	}
+	s.watchers[ch] = struct{}{}
+	s.mu.Unlock()
+	var once sync.Once
+	return ch, func() {
+		once.Do(func() {
+			s.mu.Lock()
+			delete(s.watchers, ch)
+			s.mu.Unlock()
+		})
+	}, nil
+}
+
+// TestRumble vibrates the player's controllers for d at the configured
+// strength.
+func (a *App) TestRumble(player int, d time.Duration) error {
+	s := a.slotFor(player)
+	if s == nil {
+		return ErrNoPlayer
+	}
+	v := protocol.FromMotors(200, 200, a.cfg.VibrationStrength)
+	for _, m := range s.snapshot() {
+		m.rumbler.set(v)
+	}
+	time.AfterFunc(d, func() {
+		for _, m := range s.snapshot() {
+			m.rumbler.set(protocol.SilentVibration())
+		}
+	})
+	return nil
+}
+
+// Disconnect detaches and disconnects every controller in the player slot.
+func (a *App) Disconnect(player int) error {
+	s := a.slotFor(player)
+	if s == nil {
+		return ErrNoPlayer
+	}
+	for _, m := range s.snapshot() {
+		a.RemoveDevice(m.dev.Address())
+		_ = m.dev.Close()
+	}
+	return nil
 }

@@ -51,6 +51,42 @@ type Manager struct {
 	Backoff time.Duration
 	// ConnectTimeout bounds connecting, initializing and pairing (default 30 s).
 	ConnectTimeout time.Duration
+	// OnEvent, if set, receives progress events (from the Run goroutine or a
+	// disconnect callback). It must not block.
+	OnEvent func(Event)
+}
+
+// Stage is a step of the connection lifecycle.
+type Stage int
+
+const (
+	Scanning   Stage = iota // looking for controllers
+	Full                    // every player slot is taken; not scanning
+	Found                   // an advert was accepted
+	Connecting              // GATT link + initialization
+	Pairing                 // bonding to this host
+	Ready                   // attached to a player slot
+	Ignored                 // bonded to another host and not accepted
+	Failed                  // connect, initialize, pair or attach failed
+	Dropped                 // the link dropped (before or after attach)
+)
+
+// Event reports lifecycle progress for one controller (Addr empty for
+// Scanning and Full).
+type Event struct {
+	Stage Stage
+	Addr  string
+	Model string
+	Err   error
+	// Unpaired is set on Ready when a controller in sync mode could not be
+	// paired because the host MAC is unknown.
+	Unpaired bool
+}
+
+func (m *Manager) emit(e Event) {
+	if m.OnEvent != nil {
+		m.OnEvent(e)
+	}
 }
 
 // ErrDropped is returned when the link drops before the controller is attached.
@@ -78,6 +114,7 @@ func (m *Manager) Run(ctx context.Context) error {
 			return true
 		}
 		if _, dup := reported.LoadOrStore(a.Addr, true); !dup {
+			m.emit(Event{Stage: Ignored, Addr: a.Addr, Model: protocol.ControllerNames[a.Adv.ProductID]})
 			m.Log.Info("ignoring controller paired to another host (hold SYNC to pair, or set accept_foreign_controllers)",
 				"addr", a.Addr, "model", protocol.ControllerNames[a.Adv.ProductID])
 		}
@@ -85,11 +122,20 @@ func (m *Manager) Run(ctx context.Context) error {
 	}
 
 	m.Log.Info("press a button on a paired controller, or hold SYNC on an unpaired one")
+	var last Stage = -1
+	stage := func(s Stage) {
+		if s != last {
+			last = s
+			m.emit(Event{Stage: s})
+		}
+	}
 	for ctx.Err() == nil {
 		if m.App.Full() {
+			stage(Full)
 			sleep(ctx, m.Backoff)
 			continue
 		}
+		stage(Scanning)
 		a, err := m.Radio.Scan(ctx, accept)
 		if err != nil {
 			if ctx.Err() == nil {
@@ -98,7 +144,9 @@ func (m *Manager) Run(ctx context.Context) error {
 			}
 			continue
 		}
+		last = -1
 		if err := m.connect(ctx, a, host, hostKnown); err != nil {
+			m.emit(Event{Stage: Failed, Addr: a.Addr, Model: protocol.ControllerNames[a.Adv.ProductID], Err: err})
 			m.Log.Warn("connection failed; press a button or hold SYNC to retry", "addr", a.Addr, "err", err)
 		}
 	}
@@ -131,7 +179,9 @@ type link struct {
 }
 
 func (m *Manager) connect(ctx context.Context, a Advert, host uint64, hostKnown bool) error {
-	m.Log.Info("connecting", "addr", a.Addr, "model", protocol.ControllerNames[a.Adv.ProductID], "pairing", a.Adv.Pairing())
+	model := protocol.ControllerNames[a.Adv.ProductID]
+	m.emit(Event{Stage: Found, Addr: a.Addr, Model: model})
+	m.Log.Info("connecting", "addr", a.Addr, "model", model, "pairing", a.Adv.Pairing())
 	cctx, cancel := context.WithTimeout(ctx, m.ConnectTimeout)
 	defer cancel()
 
@@ -142,6 +192,7 @@ func (m *Manager) connect(ctx context.Context, a Advert, host uint64, hostKnown 
 		attached := l.attached
 		l.mu.Unlock()
 		m.Log.Info("controller disconnected", "addr", a.Addr)
+		m.emit(Event{Stage: Dropped, Addr: a.Addr, Model: model})
 		if attached {
 			m.App.RemoveDevice(a.Addr)
 		}
@@ -149,6 +200,7 @@ func (m *Manager) connect(ctx context.Context, a Advert, host uint64, hostKnown 
 	if err != nil {
 		return err
 	}
+	m.emit(Event{Stage: Connecting, Addr: a.Addr, Model: model})
 
 	c := controller.New(t, m.Log)
 	err = c.Initialize(cctx, controller.Options{
@@ -158,6 +210,7 @@ func (m *Manager) connect(ctx context.Context, a Advert, host uint64, hostKnown 
 		Deadzone:             func(k protocol.Kind) float64 { return m.Config.Deadzone(k.DeadzoneFamily()) },
 	})
 	if err == nil && a.Adv.Pairing() && hostKnown {
+		m.emit(Event{Stage: Pairing, Addr: a.Addr, Model: model})
 		if err = c.Pair(cctx, host); err == nil {
 			m.Log.Info("paired; the controller will now reconnect with a button press", "addr", a.Addr)
 		} else {
@@ -182,6 +235,7 @@ func (m *Manager) connect(ctx context.Context, a Advert, host uint64, hostKnown 
 		_ = c.Close()
 		return err
 	}
+	m.emit(Event{Stage: Ready, Addr: a.Addr, Model: model, Unpaired: a.Adv.Pairing() && !hostKnown})
 	if m.Config.ConnectHaptics {
 		go c.ConnectHaptics(context.WithoutCancel(ctx))
 	}
