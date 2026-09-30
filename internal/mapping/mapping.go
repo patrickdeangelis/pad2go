@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/angelispatrick/switch2connect-go/internal/protocol"
+	"github.com/angelispatrick/switch2go/internal/protocol"
 )
 
 // Xbox 360 (XUSB) button bits.

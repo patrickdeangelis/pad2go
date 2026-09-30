@@ -20,14 +20,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/angelispatrick/switch2connect-go/internal/app"
-	"github.com/angelispatrick/switch2connect-go/internal/config"
-	"github.com/angelispatrick/switch2connect-go/internal/controller"
-	"github.com/angelispatrick/switch2connect-go/internal/controller/controllertest"
-	"github.com/angelispatrick/switch2connect-go/internal/dsu"
-	"github.com/angelispatrick/switch2connect-go/internal/mapping"
-	"github.com/angelispatrick/switch2connect-go/internal/protocol"
-	"github.com/angelispatrick/switch2connect-go/internal/virtualpad"
+	"github.com/angelispatrick/switch2go/internal/app"
+	"github.com/angelispatrick/switch2go/internal/config"
+	"github.com/angelispatrick/switch2go/internal/controller"
+	"github.com/angelispatrick/switch2go/internal/controller/controllertest"
+	"github.com/angelispatrick/switch2go/internal/dsu"
+	"github.com/angelispatrick/switch2go/internal/mapping"
+	"github.com/angelispatrick/switch2go/internal/protocol"
+	"github.com/angelispatrick/switch2go/internal/virtualpad"
 )
 
 var n = 200000

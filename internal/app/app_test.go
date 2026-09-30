@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/angelispatrick/switch2connect-go/internal/config"
-	"github.com/angelispatrick/switch2connect-go/internal/mapping"
-	"github.com/angelispatrick/switch2connect-go/internal/protocol"
-	"github.com/angelispatrick/switch2connect-go/internal/virtualpad"
+	"github.com/angelispatrick/switch2go/internal/config"
+	"github.com/angelispatrick/switch2go/internal/mapping"
+	"github.com/angelispatrick/switch2go/internal/protocol"
+	"github.com/angelispatrick/switch2go/internal/virtualpad"
 )
 
 type fakeDev struct {

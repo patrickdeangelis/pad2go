@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/angelispatrick/switch2connect-go/internal/controller/controllertest"
-	"github.com/angelispatrick/switch2connect-go/internal/protocol"
+	"github.com/angelispatrick/switch2go/internal/controller/controllertest"
+	"github.com/angelispatrick/switch2go/internal/protocol"
 )
 
 func initialize(t *testing.T, pid uint16, opt Options) (*Controller, *controllertest.Sim) {
@@ -144,7 +144,7 @@ func TestSettleGate(t *testing.T) {
 	c, sim := initialize(t, protocol.JoyCon2RightPID, Options{})
 	got := collect(c)
 	sim.SendReport(controllertest.Report(protocol.BtnA, controllertest.Center, controllertest.Center)) // held at connect: dropped
-	sim.SendReport(controllertest.Report(0, controllertest.Center, controllertest.Center))              // neutral: settles
+	sim.SendReport(controllertest.Report(0, controllertest.Center, controllertest.Center))             // neutral: settles
 	sim.SendReport(controllertest.Report(protocol.BtnB, controllertest.Center, controllertest.Center))
 	in := got()
 	if len(in) != 2 || in[0].Buttons != 0 || in[1].Buttons != protocol.BtnB {

@@ -15,7 +15,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/angelispatrick/switch2connect-go/internal/mapping"
+	"github.com/angelispatrick/switch2go/internal/mapping"
 )
 
 // findEventNode locates the evdev node for the pad, creating it under /dev if
@@ -27,7 +27,7 @@ func findEventNode(t *testing.T) string {
 		matches, _ := filepath.Glob("/sys/class/input/event*")
 		for _, m := range matches {
 			name, _ := os.ReadFile(filepath.Join(m, "device/name"))
-			if strings.TrimSpace(string(name)) != "Switch2Connect Xbox 360 Controller" {
+			if strings.TrimSpace(string(name)) != "switch2go Xbox 360 Controller" {
 				continue
 			}
 			devnum, err := os.ReadFile(filepath.Join(m, "dev"))

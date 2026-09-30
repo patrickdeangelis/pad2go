@@ -1,6 +1,6 @@
-/switch2connect
-/switch2connect.exe
-/switch2connect-*
+/switch2go
+/switch2go.exe
+/switch2go-*
 /dist/
 /config.yaml
 ViGEmClient.dll

@@ -12,8 +12,8 @@ import (
 
 	"tinygo.org/x/bluetooth"
 
-	"github.com/angelispatrick/switch2connect-go/internal/controller"
-	"github.com/angelispatrick/switch2connect-go/internal/protocol"
+	"github.com/angelispatrick/switch2go/internal/controller"
+	"github.com/angelispatrick/switch2go/internal/protocol"
 )
 
 // Adapter wraps the default Bluetooth adapter.

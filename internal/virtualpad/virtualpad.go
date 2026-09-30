@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/angelispatrick/switch2connect-go/internal/mapping"
+	"github.com/angelispatrick/switch2go/internal/mapping"
 )
 
 // RumbleFunc receives force-feedback from games: large (low-frequency) and

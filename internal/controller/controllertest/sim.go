@@ -8,7 +8,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/angelispatrick/switch2connect-go/internal/protocol"
+	"github.com/angelispatrick/switch2go/internal/protocol"
 )
 
 // Write is one recorded write to a characteristic.

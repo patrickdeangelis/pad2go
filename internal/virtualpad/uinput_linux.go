@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/angelispatrick/switch2connect-go/internal/mapping"
+	"github.com/angelispatrick/switch2go/internal/mapping"
 )
 
 const platformName = "uinput"
@@ -129,7 +129,7 @@ func (uinputBackend) NewPad(onRumble RumbleFunc) (Pad, error) {
 	// Legacy struct uinput_user_dev setup.
 	var dev bytes.Buffer
 	name := make([]byte, 80)
-	copy(name, "Switch2Connect Xbox 360 Controller")
+	copy(name, "switch2go Xbox 360 Controller")
 	dev.Write(name)
 	binary.Write(&dev, binary.LittleEndian, [4]uint16{busUSB, 0x045e, 0x028e, 0x0110})
 	binary.Write(&dev, binary.LittleEndian, uint32(16)) // ff_effects_max

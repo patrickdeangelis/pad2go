@@ -3,7 +3,7 @@ package mapping
 import (
 	"testing"
 
-	p "github.com/angelispatrick/switch2connect-go/internal/protocol"
+	p "github.com/angelispatrick/switch2go/internal/protocol"
 )
 
 func TestToXboxPositionalAndLabel(t *testing.T) {
