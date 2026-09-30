@@ -1,5 +1,7 @@
 # switch2go
 
+![switch2go](docs/banner.png)
+
 A Go port of [TommyWabg/Switch2Connect](https://github.com/TommyWabg/Switch2Connect):
 connect **Switch 2 Joy-Cons**, the **Switch 2 Pro Controller** and the **NSO
 GameCube Controller** to a PC over Bluetooth LE and use them as virtual **Xbox
@@ -142,6 +144,10 @@ internal/config      YAML config
 ```
 
 ## License
+
+The banner's gopher is inspired by the Go gopher, designed by Renée French
+(CC BY 4.0).
+
 
 GPL-3.0, same as the upstream project (see `LICENSE`). Protocol knowledge and
 constants come from Switch2Connect by TommyWabg.
