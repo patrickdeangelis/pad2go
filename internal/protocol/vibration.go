@@ -84,12 +84,12 @@ func RumblePacket(seq uint8, frames [3]Vibration, proLike bool) []byte {
 	return out
 }
 
-// VibrationUUID returns the vibration characteristic for a product.
-func VibrationUUID(pid uint16) string {
+// VibrationUUID returns the vibration characteristic for a controller kind.
+func VibrationUUID(k Kind) string {
 	switch {
-	case IsProLike(pid):
+	case k.ProLike():
 		return VibrationWriteProControllerUUID
-	case pid == JoyCon2LeftPID:
+	case k == KindJoyConLeft:
 		return VibrationWriteJoyConLUUID
 	default:
 		return VibrationWriteJoyConRUUID

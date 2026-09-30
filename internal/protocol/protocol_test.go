@@ -263,8 +263,8 @@ func TestRumblePacket(t *testing.T) {
 	if len(pro) != 33 || !bytes.Equal(pro[1:17], pro[17:33]) {
 		t.Fatalf("pro packet %x", pro)
 	}
-	if VibrationUUID(JoyCon2LeftPID) != VibrationWriteJoyConLUUID ||
-		VibrationUUID(NSOGameCubeControllerPID) != VibrationWriteProControllerUUID {
+	if VibrationUUID(KindJoyConLeft) != VibrationWriteJoyConLUUID ||
+		VibrationUUID(KindGameCube) != VibrationWriteProControllerUUID {
 		t.Fatal("vibration UUID routing")
 	}
 }
@@ -286,5 +286,23 @@ func TestButtonNames(t *testing.T) {
 	got := ButtonNames(BtnA | BtnHome)
 	if len(got) != 2 || got[0] != "A" || got[1] != "HOME" {
 		t.Fatal(got)
+	}
+}
+
+func TestKind(t *testing.T) {
+	cases := map[uint16]Kind{
+		JoyCon2LeftPID: KindJoyConLeft, JoyCon2RightPID: KindJoyConRight,
+		ProController2PID: KindPro, NSOGameCubeControllerPID: KindGameCube, 0x1234: KindUnknown,
+	}
+	for pid, want := range cases {
+		if got := KindOf(pid); got != want {
+			t.Errorf("KindOf(%04x) = %v, want %v", pid, got, want)
+		}
+	}
+	if !KindJoyConRight.IsJoyCon() || KindPro.IsJoyCon() || !KindGameCube.ProLike() || KindJoyConLeft.ProLike() {
+		t.Fatal("kind predicates")
+	}
+	if KindJoyConLeft.DeadzoneFamily() != "joycon" || KindGameCube.DeadzoneFamily() != "nso_gamecube_controller" || KindPro.DeadzoneFamily() != "pro_controller" {
+		t.Fatal("deadzone families")
 	}
 }

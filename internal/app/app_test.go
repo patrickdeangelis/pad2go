@@ -14,25 +14,23 @@ import (
 
 type fakeDev struct {
 	addr string
-	pid  uint16
-	cal  protocol.StickCalibration
+	kind protocol.Kind
 
 	mu      sync.Mutex
-	input   func(protocol.Report)
+	input   func(protocol.Input)
 	leds    []int
 	rumbles []protocol.Vibration
 	closed  bool
 }
 
 func newDev(addr string, pid uint16) *fakeDev {
-	return &fakeDev{addr: addr, pid: pid, cal: protocol.StickCalibration{
-		CenterX: 2048, CenterY: 2048, MaxX: 1000, MaxY: 1000, MinX: 1000, MinY: 1000, Valid: true}}
+	return &fakeDev{addr: addr, kind: protocol.KindOf(pid)}
 }
 
-func (d *fakeDev) Address() string   { return d.addr }
-func (d *fakeDev) ProductID() uint16 { return d.pid }
-func (d *fakeDev) Name() string      { return protocol.ControllerNames[d.pid] }
-func (d *fakeDev) OnInput(fn func(protocol.Report)) {
+func (d *fakeDev) Address() string     { return d.addr }
+func (d *fakeDev) Kind() protocol.Kind { return d.kind }
+func (d *fakeDev) Name() string        { return d.kind.String() }
+func (d *fakeDev) OnInput(fn func(protocol.Input)) {
 	d.mu.Lock()
 	d.input = fn
 	d.mu.Unlock()
@@ -49,29 +47,18 @@ func (d *fakeDev) Rumble(v protocol.Vibration) error {
 	d.mu.Unlock()
 	return nil
 }
-func (d *fakeDev) Calibration() (*protocol.StickCalibration, *protocol.StickCalibration) {
-	switch d.pid {
-	case protocol.JoyCon2LeftPID:
-		return &d.cal, nil
-	case protocol.JoyCon2RightPID:
-		return nil, &d.cal
-	}
-	return &d.cal, &d.cal
-}
 func (d *fakeDev) Close() error { d.closed = true; return nil }
 
-func (d *fakeDev) send(r protocol.Report) {
+func (d *fakeDev) send(in protocol.Input) {
 	d.mu.Lock()
 	fn := d.input
 	d.mu.Unlock()
 	if fn != nil {
-		fn(r)
+		fn(in)
 	}
 }
 
-func centered(buttons uint32) protocol.Report {
-	return protocol.Report{Buttons: buttons, LeftStickRaw: [2]int{2048, 2048}, RightStickRaw: [2]int{2048, 2048}}
-}
+func centered(buttons uint32) protocol.Input { return protocol.Input{Buttons: buttons} }
 
 func newApp(t *testing.T, mut func(*config.Config)) (*App, *virtualpad.Recorder) {
 	t.Helper()
@@ -90,7 +77,7 @@ func TestSingleProController(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := centered(protocol.BtnB | protocol.BtnZR)
-	r.LeftStickRaw = [2]int{3048, 2048}
+	r.Left = protocol.Stick{X: 1}
 	d.send(r)
 	pads := rec.Snapshot()
 	if len(pads) != 1 {
@@ -120,7 +107,7 @@ func TestJoyConsMergeIntoOnePad(t *testing.T) {
 		t.Fatalf("expected one merged pad, got %d", len(pads))
 	}
 	lr := centered(protocol.BtnUp | protocol.BtnL)
-	lr.LeftStickRaw = [2]int{2048, 3048}
+	lr.Left = protocol.Stick{Y: 1}
 	l.send(lr)
 	r.send(centered(protocol.BtnA))
 	st, _ := pads[0].State()
@@ -169,7 +156,7 @@ func TestSingleJoyConHorizontal(t *testing.T) {
 	r := newDev("R", protocol.JoyCon2RightPID)
 	_ = a.AddDevice(context.Background(), r)
 	rep := centered(protocol.BtnX)
-	rep.RightStickRaw = [2]int{2048, 3048} // push "up" on the Joy-Con
+	rep.Right = protocol.Stick{Y: 1} // push "up" on the Joy-Con
 	r.send(rep)
 	st, _ := rec.Snapshot()[0].State()
 	// Sideways, X sits on the right (Xbox B position) and "up" points right.

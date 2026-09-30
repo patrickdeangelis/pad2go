@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/crc32"
+	"log/slog"
 	"math/rand/v2"
 	"net"
 	"os"
@@ -21,6 +22,8 @@ import (
 
 	"github.com/angelispatrick/switch2connect-go/internal/app"
 	"github.com/angelispatrick/switch2connect-go/internal/config"
+	"github.com/angelispatrick/switch2connect-go/internal/controller"
+	"github.com/angelispatrick/switch2connect-go/internal/controller/controllertest"
 	"github.com/angelispatrick/switch2connect-go/internal/dsu"
 	"github.com/angelispatrick/switch2connect-go/internal/mapping"
 	"github.com/angelispatrick/switch2connect-go/internal/protocol"
@@ -136,22 +139,19 @@ func benchParse(gamecube bool) stats {
 	})
 }
 
-// fakeDevice feeds reports into the app like a connected controller.
-type fakeDevice struct {
-	addr  string
-	cal   protocol.StickCalibration
-	input func(protocol.Report)
-}
-
-func (d *fakeDevice) Address() string                          { return d.addr }
-func (d *fakeDevice) ProductID() uint16                        { return protocol.ProController2PID }
-func (d *fakeDevice) Name() string                             { return "Pro Controller 2" }
-func (d *fakeDevice) OnInput(fn func(protocol.Report))         { d.input = fn }
-func (d *fakeDevice) SetPlayerLEDs(context.Context, int) error { return nil }
-func (d *fakeDevice) Rumble(protocol.Vibration) error          { return nil }
-func (d *fakeDevice) Close() error                             { return nil }
-func (d *fakeDevice) Calibration() (*protocol.StickCalibration, *protocol.StickCalibration) {
-	return &d.cal, &d.cal
+// newController initializes a real controller against a simulated Pro
+// Controller 2 whose stick calibration matches the Python harness.
+func newController(addr string) (*controller.Controller, *controllertest.Sim) {
+	sim := controllertest.New(addr, protocol.ProController2PID)
+	block := append(slices.Clone(calBytes), 0, 0)
+	sim.Memory[protocol.AddrCalibrationJoystick1] = block
+	sim.Memory[protocol.AddrUserCalibrationJoystick2] = block
+	c := controller.New(sim, slog.New(slog.DiscardHandler))
+	if err := c.Initialize(context.Background(), controller.Options{AdvertisedPID: protocol.ProController2PID}); err != nil {
+		panic(err)
+	}
+	sim.SendReport(make([]byte, 64)) // neutral frame opens the settle gate
+	return c, sim
 }
 
 // storeBackend keeps the last Xbox report, like vgamepad's report struct.
@@ -164,29 +164,26 @@ func (storeBackend) NewPad(virtualpad.RumbleFunc) (virtualpad.Pad, error) { retu
 func (p *storePad) Update(s mapping.XboxState) error                      { p.last = s; return nil }
 func (p *storePad) Close() error                                          { return nil }
 
-func newPipeline(devices int) (*app.App, []*fakeDevice) {
+func newPipeline(devices int) (*app.App, []*controllertest.Sim) {
 	cfg := config.Default()
 	cfg.MaxControllers = max(devices, 1)
-	a := app.New(cfg, storeBackend{}, nil, nil)
-	devs := make([]*fakeDevice, devices)
-	for i := range devs {
-		devs[i] = &fakeDevice{addr: "AA:BB:CC:DD:EE:0" + strconv.Itoa(i), cal: protocol.ParseStickCalibration(calBytes)}
-		if err := a.AddDevice(context.Background(), devs[i]); err != nil {
+	a := app.New(cfg, storeBackend{}, nil, slog.New(slog.DiscardHandler))
+	sims := make([]*controllertest.Sim, devices)
+	for i := range sims {
+		var c *controller.Controller
+		c, sims[i] = newController("AA:BB:CC:DD:EE:0" + strconv.Itoa(i))
+		if err := a.AddDevice(context.Background(), c); err != nil {
 			panic(err)
 		}
 	}
-	return a, devs
+	return a, sims
 }
 
-// benchPipeline: raw BLE notification -> parse -> calibrate -> map -> Xbox report.
+// benchPipeline: raw BLE notification -> parse -> settle gate -> calibrate ->
+// map -> Xbox report, through the real controller and app code.
 func benchPipeline() stats {
-	_, devs := newPipeline(1)
-	d := devs[0]
-	opt := protocol.ParseOptions{ProductID: protocol.ProController2PID}
-	return measure(makeReports(n, false), func(b []byte) {
-		r, _ := protocol.ParseReport(b, opt)
-		d.input(r)
-	})
+	_, sims := newPipeline(1)
+	return measure(makeReports(n, false), sims[0].SendReport)
 }
 
 func benchRumble() stats {
@@ -268,16 +265,14 @@ type parallelResult struct {
 
 func benchParallel(workers int) parallelResult {
 	per := n / workers
-	_, devs := newPipeline(workers)
+	_, sims := newPipeline(workers)
 	reports := makeReports(per, false)
-	opt := protocol.ParseOptions{ProductID: protocol.ProController2PID}
 	var wg sync.WaitGroup
 	t0 := time.Now()
-	for _, d := range devs {
+	for _, sim := range sims {
 		wg.Go(func() {
 			for _, b := range reports {
-				r, _ := protocol.ParseReport(b, opt)
-				d.input(r)
+				sim.SendReport(b)
 			}
 		})
 	}
@@ -294,18 +289,16 @@ func verify(path string) {
 		panic(err)
 	}
 	pad := &storePad{}
-	a := app.New(config.Default(), padBackend{pad}, nil, nil)
-	d := &fakeDevice{addr: "AA:BB:CC:DD:EE:FF", cal: protocol.ParseStickCalibration(calBytes)}
-	if err := a.AddDevice(context.Background(), d); err != nil {
+	a := app.New(config.Default(), padBackend{pad}, nil, slog.New(slog.DiscardHandler))
+	c, sim := newController("AA:BB:CC:DD:EE:FF")
+	if err := a.AddDevice(context.Background(), c); err != nil {
 		panic(err)
 	}
-	opt := protocol.ParseOptions{ProductID: protocol.ProController2PID}
 	total, diffs := 0, 0
 	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 		f := strings.Fields(line)
 		raw, _ := hex.DecodeString(f[0])
-		r, _ := protocol.ParseReport(raw, opt)
-		d.input(r)
+		sim.SendReport(raw)
 		want := make([]int64, 7)
 		w, _ := strconv.ParseUint(f[1], 16, 16)
 		want[0] = int64(w)

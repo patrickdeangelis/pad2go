@@ -127,6 +127,21 @@ func (c StickCalibration) Apply(rawX, rawY int, gain, deadzone float64) (float64
 	return x, y
 }
 
+// Stick is a normalized stick position in [-1, 1]; +Y is up.
+type Stick struct{ X, Y float64 }
+
+// Input is one calibrated input sample: what a controller reports after stick
+// calibration, gain and deadzone are applied. IMU values stay raw.
+type Input struct {
+	Buttons     uint32
+	Left, Right Stick
+	// Analog triggers (GameCube only), 0-255; AnalogTriggers is false otherwise.
+	LeftTrigger, RightTrigger uint8
+	AnalogTriggers            bool
+	Accel, Gyro               [3]int16
+	BatteryVoltage            float64
+}
+
 // GameCube trigger modes (config key gc_trigger_mode).
 const (
 	GCTriggerHair = "Hair Trigger"

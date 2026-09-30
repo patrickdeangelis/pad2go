@@ -218,6 +218,7 @@ func connect(ctx context.Context, ad *ble.Adapter, a *app.App, cfg *config.Confi
 		AdvertisedPID:        f.Adv.ProductID,
 		GCTriggerMode:        cfg.GCTriggerMode,
 		GCTriggerCalibration: cfg.GCTriggerCalibration[addr],
+		Deadzone:             func(k protocol.Kind) float64 { return cfg.Deadzone(k.DeadzoneFamily()) },
 	})
 	if err == nil && f.Adv.Pairing() && hostKnown {
 		if err = c.Pair(ctx, host); err == nil {
@@ -225,7 +226,7 @@ func connect(ctx context.Context, ad *ble.Adapter, a *app.App, cfg *config.Confi
 		}
 	}
 	if err == nil {
-		err = a.AddDevice(context.WithoutCancel(ctx), app.WrapController(c))
+		err = a.AddDevice(context.WithoutCancel(ctx), c)
 	}
 	if err != nil {
 		_ = c.Close()

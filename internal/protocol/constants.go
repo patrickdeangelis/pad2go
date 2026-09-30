@@ -96,14 +96,3 @@ const (
 // PhysicalButtonMask clears status bits that leak into the button field on
 // Joy-Con 2 / Pro Controller 2 reports.
 const PhysicalButtonMask = 0x03FFFFFF
-
-// IsJoyCon reports whether pid is a Joy-Con 2 of either side.
-func IsJoyCon(pid uint16) bool { return pid == JoyCon2LeftPID || pid == JoyCon2RightPID }
-
-// IsProLike reports whether pid uses the "Pro" (two-stick, dual-motor) layout.
-func IsProLike(pid uint16) bool {
-	return pid == ProController2PID || pid == ProControllerPID || pid == NSOGameCubeControllerPID
-}
-
-// HasSecondStick reports whether pid has two analog sticks.
-func HasSecondStick(pid uint16) bool { return IsProLike(pid) }

@@ -23,30 +23,20 @@ import (
 // RumbleInterval is how often an active rumble is re-sent (~60 Hz).
 const RumbleInterval = 16667 * time.Microsecond
 
-// Device is what the app needs from a connected controller. It is satisfied
-// by *controller.Controller; tests use fakes.
+// Device is what the app needs from a connected controller: calibrated
+// input out, LEDs and rumble in. *controller.Controller satisfies it; tests
+// use fakes.
 type Device interface {
 	Address() string
-	ProductID() uint16
+	Kind() protocol.Kind
 	Name() string
-	OnInput(func(protocol.Report))
+	OnInput(func(protocol.Input))
 	SetPlayerLEDs(ctx context.Context, player int) error
 	Rumble(protocol.Vibration) error
-	Calibration() (left, right *protocol.StickCalibration)
 	Close() error
 }
 
-var _ Device = (*controllerDevice)(nil)
-
-// controllerDevice adapts *controller.Controller to Device.
-type controllerDevice struct{ *controller.Controller }
-
-func (d controllerDevice) Calibration() (l, r *protocol.StickCalibration) {
-	return d.LeftCal, d.RightCal
-}
-
-// WrapController adapts a controller for AddDevice.
-func WrapController(c *controller.Controller) Device { return controllerDevice{c} }
+var _ Device = (*controller.Controller)(nil)
 
 // App manages player slots.
 type App struct {
@@ -116,9 +106,9 @@ func (a *App) AddDevice(ctx context.Context, d Device) error {
 	a.mu.Lock()
 	m := &member{dev: d, hold: a.cfg.HoldMode(d.Address())}
 	var target *slot
-	if a.cfg.CombineJoyCons && protocol.IsJoyCon(d.ProductID()) {
+	if a.cfg.CombineJoyCons && d.Kind().IsJoyCon() {
 		for _, s := range a.slots {
-			if s != nil && s.singleJoyCon() && s.members[0].dev.ProductID() != d.ProductID() {
+			if s != nil && s.singleJoyCon() && s.members[0].dev.Kind() != d.Kind() {
 				target = s
 				break
 			}
@@ -130,7 +120,7 @@ func (a *App) AddDevice(ctx context.Context, d Device) error {
 			a.mu.Unlock()
 			return ErrFull
 		}
-		s := &slot{app: a, player: idx + 1, states: map[*member]mapping.State{}}
+		s := &slot{app: a, player: idx + 1, states: map[*member]protocol.Input{}}
 		pad, err := a.backend.NewPad(s.onRumble)
 		if err != nil {
 			a.mu.Unlock()
@@ -147,7 +137,7 @@ func (a *App) AddDevice(ctx context.Context, d Device) error {
 	player, members := target.player, target.snapshot()
 	a.mu.Unlock()
 
-	d.OnInput(func(r protocol.Report) { target.onInput(m, r) })
+	d.OnInput(func(in protocol.Input) { target.onInput(m, in) })
 	for _, mm := range members {
 		if err := mm.dev.SetPlayerLEDs(ctx, player); err != nil {
 			a.log.Warn("set player LEDs failed", "addr", mm.dev.Address(), "err", err)
@@ -222,7 +212,7 @@ type slot struct {
 
 	mu      sync.Mutex
 	members []*member
-	states  map[*member]mapping.State
+	states  map[*member]protocol.Input
 }
 
 func (s *slot) snapshot() []*member {
@@ -245,58 +235,23 @@ func (s *slot) find(addr string) *member {
 func (s *slot) singleJoyCon() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.members) == 1 && protocol.IsJoyCon(s.members[0].dev.ProductID())
+	return len(s.members) == 1 && s.members[0].dev.Kind().IsJoyCon()
 }
 
-func deadzoneFamily(pid uint16) string {
-	switch {
-	case protocol.IsJoyCon(pid):
-		return "joycon"
-	case pid == protocol.NSOGameCubeControllerPID:
-		return "nso_gamecube_controller"
-	}
-	return "pro_controller"
-}
-
-// normalize applies calibration, gain and deadzone to a report.
-func (a *App) normalize(d Device, r protocol.Report) mapping.State {
-	pid := d.ProductID()
-	dz := a.cfg.Deadzone(deadzoneFamily(pid))
-	gain := 1.0
-	if protocol.IsJoyCon(pid) {
-		gain = 1.05
-	}
-	lc, rc := d.Calibration()
-	st := mapping.State{Buttons: r.Buttons}
-	if lc != nil {
-		st.Left.X, st.Left.Y = lc.Apply(r.LeftStickRaw[0], r.LeftStickRaw[1], gain, dz)
-	}
-	if rc != nil {
-		st.Right.X, st.Right.Y = rc.Apply(r.RightStickRaw[0], r.RightStickRaw[1], gain, dz)
-	}
-	if pid == protocol.NSOGameCubeControllerPID {
-		st.HasAnalogTriggers = true
-		st.LeftTrigger, st.RightTrigger = r.LeftTrigger, r.RightTrigger
-	}
-	return st
-}
-
-func (s *slot) onInput(m *member, r protocol.Report) {
+func (s *slot) onInput(m *member, in protocol.Input) {
 	a := s.app
-	st := a.normalize(m.dev, r)
-	kept, extra := a.remapper.Apply(st.Buttons)
+	kept, extra := a.remapper.Apply(in.Buttons)
+	st := in
 	st.Buttons = kept
 
 	s.mu.Lock()
-	var out mapping.State
-	gameCube := false
+	var out protocol.Input
+	kind := m.dev.Kind()
 	switch len(s.members) {
 	case 1:
-		pid := m.dev.ProductID()
-		gameCube = pid == protocol.NSOGameCubeControllerPID
-		if protocol.IsJoyCon(pid) {
+		if kind.IsJoyCon() {
 			side := mapping.LeftJoyCon
-			if pid == protocol.JoyCon2RightPID {
+			if kind == protocol.KindJoyConRight {
 				side = mapping.RightJoyCon
 			}
 			st = mapping.OrientSingleJoyCon(side, m.hold == config.HoldHorizontal, st)
@@ -306,9 +261,9 @@ func (s *slot) onInput(m *member, r protocol.Report) {
 	default:
 		st.Buttons |= extra
 		s.states[m] = st
-		var left, right mapping.State
+		var left, right protocol.Input
 		for mm, ms := range s.states {
-			if mm.dev.ProductID() == protocol.JoyCon2LeftPID {
+			if mm.dev.Kind() == protocol.KindJoyConLeft {
 				left = ms
 			} else {
 				right = ms
@@ -318,29 +273,28 @@ func (s *slot) onInput(m *member, r protocol.Report) {
 	}
 	s.mu.Unlock()
 
-	if err := s.pad.Update(mapping.ToXbox(out, a.layout, gameCube)); err != nil {
+	if err := s.pad.Update(mapping.ToXbox(out, a.layout, kind == protocol.KindGameCube)); err != nil {
 		a.log.Debug("virtual pad update failed", "err", err)
 	}
 	if a.dsu != nil {
-		a.publishMotion(m, r, st)
+		a.publishMotion(m, in, st)
 	}
 }
 
-func (a *App) publishMotion(m *member, r protocol.Report, st mapping.State) {
-	pid := m.dev.ProductID()
-	pro := protocol.IsProLike(pid)
+func (a *App) publishMotion(m *member, in, st protocol.Input) {
+	kind := m.dev.Kind()
 	side := 0
-	if pid == protocol.JoyCon2RightPID {
+	if kind == protocol.KindJoyConRight {
 		side = 1
 	}
-	accel, gyro := dsu.Motion(r.Accel, r.Gyro, pro, side, m.hold == config.HoldHorizontal, a.cfg.CemuhookSensitivity)
+	accel, gyro := dsu.Motion(in.Accel, in.Gyro, kind.ProLike(), side, m.hold == config.HoldHorizontal, a.cfg.CemuhookSensitivity)
 	model := byte(dsu.ModelDS4)
-	if !pro {
+	if !kind.ProLike() {
 		model = dsu.ModelJoyCon
 	}
 	a.dsu.Publish(dsu.Pad{
 		MAC: addressMAC(m.dev.Address()), Model: model,
-		Battery: dsu.BatteryLevel(protocol.BatteryPercent(r.BatteryVoltage)),
+		Battery: dsu.BatteryLevel(protocol.BatteryPercent(in.BatteryVoltage)),
 		Buttons: st.Buttons, LX: st.Left.X, LY: st.Left.Y, RX: st.Right.X, RY: st.Right.Y,
 		Accel: accel, Gyro: gyro,
 	})

@@ -31,9 +31,12 @@ type Controller struct {
 	t   Transport
 	log *slog.Logger
 
-	Info     protocol.ControllerInfo
-	LeftCal  *protocol.StickCalibration
-	RightCal *protocol.StickCalibration
+	Info protocol.ControllerInfo
+	kind protocol.Kind
+
+	// Stick calibration per side; nil when the controller has no such stick.
+	leftCal, rightCal *protocol.StickCalibration
+	deadzone          float64
 
 	cmdMu    sync.Mutex // serializes commands
 	respMu   sync.Mutex
@@ -48,7 +51,7 @@ type Controller struct {
 	settleDeadline time.Time
 
 	inputMu sync.RWMutex
-	onInput func(protocol.Report)
+	onInput func(protocol.Input)
 	parse   protocol.ParseOptions
 }
 
@@ -60,7 +63,9 @@ type Options struct {
 	// GameCube trigger decoding.
 	GCTriggerMode        string
 	GCTriggerCalibration []int
-	Logger               *slog.Logger
+	// Deadzone returns the radial stick deadzone (0-1) for a controller kind.
+	// Nil means 3%.
+	Deadzone func(protocol.Kind) float64
 }
 
 // New wraps a connected transport. Call Initialize before use.
@@ -74,8 +79,8 @@ func New(t Transport, log *slog.Logger) *Controller {
 // Address returns the transport address.
 func (c *Controller) Address() string { return c.t.Address() }
 
-// ProductID returns the controller's product ID.
-func (c *Controller) ProductID() uint16 { return c.Info.ProductID }
+// Kind returns the controller family.
+func (c *Controller) Kind() protocol.Kind { return c.kind }
 
 // Name returns a human-readable model name.
 func (c *Controller) Name() string {
@@ -83,14 +88,6 @@ func (c *Controller) Name() string {
 		return n
 	}
 	return fmt.Sprintf("Unknown (0x%04x)", c.Info.ProductID)
-}
-
-func (c *Controller) IsJoyConLeft() bool  { return c.Info.ProductID == protocol.JoyCon2LeftPID }
-func (c *Controller) IsJoyConRight() bool { return c.Info.ProductID == protocol.JoyCon2RightPID }
-func (c *Controller) IsJoyCon() bool      { return protocol.IsJoyCon(c.Info.ProductID) }
-func (c *Controller) IsProLike() bool     { return protocol.IsProLike(c.Info.ProductID) }
-func (c *Controller) IsGameCube() bool {
-	return c.Info.ProductID == protocol.NSOGameCubeControllerPID
 }
 
 func (c *Controller) onResponse(data []byte) {
@@ -106,8 +103,8 @@ func (c *Controller) onResponse(data []byte) {
 	}
 }
 
-// Command sends a command and waits for its response payload.
-func (c *Controller) Command(ctx context.Context, cmd, sub byte, data []byte) ([]byte, error) {
+// command sends a command and waits for its response payload.
+func (c *Controller) command(ctx context.Context, cmd, sub byte, data []byte) ([]byte, error) {
 	c.cmdMu.Lock()
 	defer c.cmdMu.Unlock()
 
@@ -136,13 +133,13 @@ func (c *Controller) Command(ctx context.Context, cmd, sub byte, data []byte) ([
 	}
 }
 
-// ReadMemory reads up to protocol.MaxMemoryRead bytes from controller memory.
-func (c *Controller) ReadMemory(ctx context.Context, length byte, addr uint32) ([]byte, error) {
+// readMemory reads up to protocol.MaxMemoryRead bytes from controller memory.
+func (c *Controller) readMemory(ctx context.Context, length byte, addr uint32) ([]byte, error) {
 	arg, err := protocol.MemoryReadData(length, addr)
 	if err != nil {
 		return nil, err
 	}
-	payload, err := c.Command(ctx, protocol.CmdMemory, protocol.SubMemoryRead, arg)
+	payload, err := c.command(ctx, protocol.CmdMemory, protocol.SubMemoryRead, arg)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +153,7 @@ func (c *Controller) Initialize(ctx context.Context, opt Options) error {
 	c.parse = protocol.ParseOptions{GCTriggerMode: opt.GCTriggerMode, GCTriggerCalibration: opt.GCTriggerCalibration}
 
 	var err error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := range 3 {
 		if err = c.t.Subscribe(protocol.CommandResponseUUID, c.onResponse); err == nil {
 			break
 		}
@@ -171,7 +168,7 @@ func (c *Controller) Initialize(ctx context.Context, opt Options) error {
 
 	fails := 0
 	for _, cmd := range protocol.InitSequenceFor(opt.AdvertisedPID) {
-		if _, err := c.Command(ctx, cmd.Cmd, cmd.Sub, cmd.Data); err != nil {
+		if _, err := c.command(ctx, cmd.Cmd, cmd.Sub, cmd.Data); err != nil {
 			fails++
 			c.log.Warn("init command failed", "cmd", fmt.Sprintf("%02x:%02x", cmd.Cmd, cmd.Sub), "err", err)
 			if fails >= 3 {
@@ -183,7 +180,7 @@ func (c *Controller) Initialize(ctx context.Context, opt Options) error {
 	}
 
 	for attempt := 0; ; attempt++ {
-		raw, err := c.ReadMemory(ctx, 0x40, protocol.AddrControllerInfo)
+		raw, err := c.readMemory(ctx, 0x40, protocol.AddrControllerInfo)
 		if err == nil {
 			c.Info, err = protocol.ParseControllerInfo(raw)
 		}
@@ -199,8 +196,13 @@ func (c *Controller) Initialize(ctx context.Context, opt Options) error {
 		}
 	}
 	c.parse.ProductID = c.Info.ProductID
+	c.kind = protocol.KindOf(c.Info.ProductID)
+	c.deadzone = 0.03
+	if opt.Deadzone != nil {
+		c.deadzone = opt.Deadzone(c.kind)
+	}
 
-	if c.IsGameCube() || c.IsJoyCon() {
+	if c.kind == protocol.KindGameCube || c.kind.IsJoyCon() {
 		if err := c.t.Write(protocol.CommandWriteUUID, protocol.SetInputMode30, false); err != nil {
 			c.log.Warn("set input mode 0x30 failed", "err", err)
 		}
@@ -209,12 +211,12 @@ func (c *Controller) Initialize(ctx context.Context, opt Options) error {
 	if err := c.readCalibration(ctx); err != nil {
 		c.log.Warn("stick calibration read failed; using centered defaults", "err", err)
 		def := protocol.DefaultStickCalibration()
-		c.LeftCal, c.RightCal = &def, &def
-		if c.IsJoyConRight() {
-			c.LeftCal = nil
+		c.leftCal, c.rightCal = &def, &def
+		if c.kind == protocol.KindJoyConRight {
+			c.leftCal = nil
 		}
-		if c.IsJoyConLeft() {
-			c.RightCal = nil
+		if c.kind == protocol.KindJoyConLeft {
+			c.rightCal = nil
 		}
 	}
 
@@ -225,7 +227,7 @@ func (c *Controller) Initialize(ctx context.Context, opt Options) error {
 		return fmt.Errorf("enable input notifications: %w", err)
 	}
 
-	if c.IsGameCube() {
+	if c.kind == protocol.KindGameCube {
 		if err := c.enableFeatures(ctx, 0x27); err != nil {
 			c.log.Warn("enable features failed", "err", err)
 		}
@@ -235,10 +237,10 @@ func (c *Controller) Initialize(ctx context.Context, opt Options) error {
 }
 
 func (c *Controller) enableFeatures(ctx context.Context, flags byte) error {
-	if _, err := c.Command(ctx, protocol.CmdFeature, protocol.SubFeatureInit, protocol.PadFeature(flags)); err != nil {
+	if _, err := c.command(ctx, protocol.CmdFeature, protocol.SubFeatureInit, protocol.PadFeature(flags)); err != nil {
 		return err
 	}
-	if c.IsGameCube() {
+	if c.kind == protocol.KindGameCube {
 		for _, pkt := range protocol.GameCubeIMUInit {
 			if err := c.t.Write(protocol.CommandWriteUUID, pkt, false); err != nil {
 				c.log.Warn("GameCube IMU init write failed", "err", err)
@@ -247,17 +249,17 @@ func (c *Controller) enableFeatures(ctx context.Context, flags byte) error {
 			sleepCtx(ctx, 50*time.Millisecond)
 		}
 	}
-	_, err := c.Command(ctx, protocol.CmdFeature, protocol.SubFeatureEnable, protocol.PadFeature(flags))
+	_, err := c.command(ctx, protocol.CmdFeature, protocol.SubFeatureEnable, protocol.PadFeature(flags))
 	return err
 }
 
 func (c *Controller) readCalibrationAt(ctx context.Context, user, factory uint32) ([]byte, error) {
-	b, err := c.ReadMemory(ctx, 0x0b, user)
+	b, err := c.readMemory(ctx, 0x0b, user)
 	if err != nil {
 		return nil, err
 	}
 	if len(b) >= 3 && b[0] == 0xFF && b[1] == 0xFF && b[2] == 0xFF {
-		return c.ReadMemory(ctx, 0x0b, factory)
+		return c.readMemory(ctx, 0x0b, factory)
 	}
 	return b, nil
 }
@@ -268,12 +270,12 @@ func (c *Controller) readCalibration(ctx context.Context) error {
 		return err
 	}
 	cal1 := protocol.ParseStickCalibration(b1)
-	switch {
-	case c.IsJoyConLeft():
-		c.LeftCal = &cal1
+	switch c.kind {
+	case protocol.KindJoyConLeft:
+		c.leftCal = &cal1
 		return nil
-	case c.IsJoyConRight():
-		c.RightCal = &cal1
+	case protocol.KindJoyConRight:
+		c.rightCal = &cal1
 		return nil
 	}
 	b2, err := c.readCalibrationAt(ctx, protocol.AddrUserCalibrationJoystick2, protocol.AddrCalibrationJoystick2)
@@ -281,7 +283,7 @@ func (c *Controller) readCalibration(ctx context.Context) error {
 		return err
 	}
 	cal2 := protocol.ParseStickCalibration(b2)
-	if c.IsGameCube() {
+	if c.kind == protocol.KindGameCube {
 		if !cal1.Valid {
 			cal1 = protocol.FixedStickCalibration()
 		}
@@ -289,12 +291,13 @@ func (c *Controller) readCalibration(ctx context.Context) error {
 			cal2 = protocol.FixedStickCalibration()
 		}
 	}
-	c.LeftCal, c.RightCal = &cal1, &cal2
+	c.leftCal, c.rightCal = &cal1, &cal2
 	return nil
 }
 
-// OnInput registers the input report handler (called from the BLE goroutine).
-func (c *Controller) OnInput(fn func(protocol.Report)) {
+// OnInput registers the handler for calibrated input (called from the BLE
+// goroutine, one report at a time).
+func (c *Controller) OnInput(fn func(protocol.Input)) {
 	c.inputMu.Lock()
 	c.onInput = fn
 	c.inputMu.Unlock()
@@ -322,19 +325,35 @@ func (c *Controller) onReport(data []byte) {
 	fn := c.onInput
 	c.inputMu.RUnlock()
 	if fn != nil {
-		fn(r)
+		fn(c.calibrate(r))
 	}
+}
+
+// calibrate applies stick calibration, Joy-Con gain and the deadzone.
+func (c *Controller) calibrate(r protocol.Report) protocol.Input {
+	in := protocol.Input{
+		Buttons: r.Buttons, Accel: r.Accel, Gyro: r.Gyro, BatteryVoltage: r.BatteryVoltage,
+	}
+	gain := 1.0
+	if c.kind.IsJoyCon() {
+		gain = 1.05
+	}
+	if c.leftCal != nil {
+		in.Left.X, in.Left.Y = c.leftCal.Apply(r.LeftStickRaw[0], r.LeftStickRaw[1], gain, c.deadzone)
+	}
+	if c.rightCal != nil {
+		in.Right.X, in.Right.Y = c.rightCal.Apply(r.RightStickRaw[0], r.RightStickRaw[1], gain, c.deadzone)
+	}
+	if c.kind == protocol.KindGameCube {
+		in.AnalogTriggers = true
+		in.LeftTrigger, in.RightTrigger = r.LeftTrigger, r.RightTrigger
+	}
+	return in
 }
 
 // SetPlayerLEDs lights the player indicator (1-8).
 func (c *Controller) SetPlayerLEDs(ctx context.Context, player int) error {
-	_, err := c.Command(ctx, protocol.CmdLEDs, protocol.SubLEDsSetPlayer, protocol.LEDData(player, false))
-	return err
-}
-
-// PlayVibrationPreset plays a built-in vibration preset.
-func (c *Controller) PlayVibrationPreset(ctx context.Context, id byte) error {
-	_, err := c.Command(ctx, protocol.CmdVibration, protocol.SubVibrationPlayPreset, protocol.PadFeature(id))
+	_, err := c.command(ctx, protocol.CmdLEDs, protocol.SubLEDsSetPlayer, protocol.LEDData(player, false))
 	return err
 }
 
@@ -350,7 +369,7 @@ func (c *Controller) Pair(ctx context.Context, hostMAC uint64) error {
 		{protocol.SubPairFinish, []byte{0}},
 	}
 	for _, s := range steps {
-		if _, err := c.Command(ctx, protocol.CmdPair, s.sub, s.data); err != nil {
+		if _, err := c.command(ctx, protocol.CmdPair, s.sub, s.data); err != nil {
 			return fmt.Errorf("pair step %02x: %w", s.sub, err)
 		}
 	}
@@ -359,25 +378,25 @@ func (c *Controller) Pair(ctx context.Context, hostMAC uint64) error {
 
 // Rumble writes one rumble packet. The same frame is used for all three slots.
 func (c *Controller) Rumble(v protocol.Vibration) error {
-	return c.RumbleFrames([3]protocol.Vibration{v, v, v})
+	return c.rumbleFrames([3]protocol.Vibration{v, v, v})
 }
 
-// RumbleFrames writes a packet with three distinct 5 ms frames.
-func (c *Controller) RumbleFrames(frames [3]protocol.Vibration) error {
+// rumbleFrames writes a packet with three distinct 5 ms frames.
+func (c *Controller) rumbleFrames(frames [3]protocol.Vibration) error {
 	c.rumbleMu.Lock()
 	defer c.rumbleMu.Unlock()
-	if c.IsGameCube() {
+	if c.kind == protocol.KindGameCube {
 		on := frames[0].LFAmp > 0 || frames[0].HFAmp > 0
 		return c.t.Write(protocol.CommandWriteUUID, protocol.GameCubeRumblePayload(on), false)
 	}
-	if !c.IsProLike() {
+	if !c.kind.ProLike() {
 		for i := range frames {
 			frames[i] = frames[i].LimitJoyConAmplitude()
 		}
 	}
-	pkt := protocol.RumblePacket(c.rumbleSeq, frames, c.IsProLike())
+	pkt := protocol.RumblePacket(c.rumbleSeq, frames, c.kind.ProLike())
 	c.rumbleSeq++
-	return c.t.Write(protocol.VibrationUUID(c.Info.ProductID), pkt, false)
+	return c.t.Write(protocol.VibrationUUID(c.kind), pkt, false)
 }
 
 // ConnectHaptics plays the short "connected" feedback.

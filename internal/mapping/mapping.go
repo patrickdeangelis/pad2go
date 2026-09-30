@@ -29,18 +29,6 @@ const (
 	XBY      uint16 = 0x8000
 )
 
-// Stick is a normalized stick position; +Y is up.
-type Stick struct{ X, Y float64 }
-
-// State is the per-controller input after calibration.
-type State struct {
-	Buttons           uint32
-	Left, Right       Stick
-	LeftTrigger       uint8 // analog (GameCube); 0 means use ZL digital
-	RightTrigger      uint8
-	HasAnalogTriggers bool
-}
-
 // XboxState is a full Xbox 360 report.
 type XboxState struct {
 	Buttons      uint16
@@ -138,7 +126,7 @@ func remap(src uint32, table [][2]uint32) uint32 {
 // D-pad becomes the face buttons and its stick the right stick).
 // Horizontal: held sideways; the stick is rotated and becomes the left stick,
 // and SL/SR become ZL/ZR.
-func OrientSingleJoyCon(side Side, horizontal bool, s State) State {
+func OrientSingleJoyCon(side Side, horizontal bool, s protocol.Input) protocol.Input {
 	b := s.Buttons
 	switch {
 	case side == LeftJoyCon && !horizontal:
@@ -150,7 +138,7 @@ func OrientSingleJoyCon(side Side, horizontal bool, s State) State {
 			{protocol.BtnL, protocol.BtnR}, {protocol.BtnZL, protocol.BtnZR},
 			{protocol.BtnMinus, protocol.BtnPlus}, {protocol.BtnLStick, protocol.BtnRStick},
 		})
-		s.Right, s.Left = s.Left, Stick{}
+		s.Right, s.Left = s.Left, protocol.Stick{}
 	case side == LeftJoyCon && horizontal:
 		clear := protocol.BtnUp | protocol.BtnDown | protocol.BtnLeft | protocol.BtnRight |
 			protocol.BtnSLL | protocol.BtnSRL | protocol.BtnL | protocol.BtnZL | protocol.BtnMinus
@@ -160,7 +148,7 @@ func OrientSingleJoyCon(side Side, horizontal bool, s State) State {
 			{protocol.BtnSLL, protocol.BtnZL}, {protocol.BtnSRL, protocol.BtnZR},
 			{protocol.BtnMinus, protocol.BtnPlus},
 		})
-		s.Left, s.Right = Stick{-s.Left.Y, s.Left.X}, Stick{}
+		s.Left, s.Right = protocol.Stick{X: -s.Left.Y, Y: s.Left.X}, protocol.Stick{}
 	case side == RightJoyCon && horizontal:
 		// The original's "Switch" layout table for this case is not a rotation
 		// of its "Xbox" table; this port uses the rotation for both.
@@ -173,15 +161,15 @@ func OrientSingleJoyCon(side Side, horizontal bool, s State) State {
 			{protocol.BtnSLR, protocol.BtnZL}, {protocol.BtnSRR, protocol.BtnZR},
 			{protocol.BtnPlus, protocol.BtnPlus}, {protocol.BtnRStick, protocol.BtnLStick},
 		})
-		s.Left, s.Right = Stick{s.Right.Y, -s.Right.X}, Stick{}
+		s.Left, s.Right = protocol.Stick{X: s.Right.Y, Y: -s.Right.X}, protocol.Stick{}
 	}
 	// Right Joy-Con, vertical: unchanged.
 	return s
 }
 
 // Merge combines a left and right Joy-Con into one state.
-func Merge(left, right State) State {
-	return State{
+func Merge(left, right protocol.Input) protocol.Input {
+	return protocol.Input{
 		Buttons: left.Buttons | right.Buttons,
 		Left:    left.Left,
 		Right:   right.Right,
@@ -236,10 +224,10 @@ func faceTable(layout Layout, gameCube bool) [][2]uint32 {
 }
 
 // ToXbox converts a (merged/oriented) state to an Xbox 360 report.
-func ToXbox(s State, layout Layout, gameCube bool) XboxState {
+func ToXbox(s protocol.Input, layout Layout, gameCube bool) XboxState {
 	var out XboxState
 	out.Buttons = uint16(remap(s.Buttons, faceTable(layout, gameCube)) | remap(s.Buttons, commonButtons))
-	if s.HasAnalogTriggers {
+	if s.AnalogTriggers {
 		out.LeftTrigger, out.RightTrigger = s.LeftTrigger, s.RightTrigger
 	} else {
 		if s.Buttons&protocol.BtnZL != 0 {
