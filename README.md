@@ -44,9 +44,11 @@ The window uses the system WebView through cgo:
 - **macOS:** WKWebView. `packaging/build-macos-app.sh` wraps the executable in
   `Pad2Go.app`, so a double-click opens the window instead of Terminal and
   macOS asks for Bluetooth permission for Pad2Go.
-- **Windows:** WebView2, which is preinstalled on Windows 10/11. Build with
-  `-ldflags "-H windowsgui"` so no console opens; a MinGW-w64 toolchain is
-  needed for cgo.
+- **Windows:** WebView2, which is preinstalled on Windows 10/11.
+  `packaging/build-windows.sh` cross-compiles `pad2go.exe` with MinGW-w64 in
+  Docker: GUI subsystem (no console), WebView2 loader and C++ runtime linked
+  in, only Windows system DLLs imported. `packaging/windows/include` supplies
+  the `EventToken.h` that MinGW lacks.
 - **Linux:** GTK 3 and WebKitGTK. On Debian 12 install `libwebkit2gtk-4.0-dev`.
   Newer distros (Debian 13, Ubuntu 24.04+) only ship 4.1: install
   `libwebkit2gtk-4.1-dev` and build with `PKG_CONFIG_PATH=$PWD/packaging/linux`,
