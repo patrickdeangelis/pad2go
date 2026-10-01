@@ -143,8 +143,9 @@ integrations above are left out.
 - For a horizontal right Joy-Con with `abxy_mode: Switch`, the original's
   face-button table is not a rotation of its `Xbox` table. This port uses the
   rotation for both layouts.
-- The DSU server converts calibrated [-1, 1] stick values to 0–255. The
-  original scaled them as if they were raw 0–4095 readings.
+- The DSU server converts calibrated [-1, 1] stick values to 0–255, Y plus
+  upward as the CemuHook protocol defines. The original scaled them as if they
+  were raw 0–4095 readings.
 
 ## Performance
 

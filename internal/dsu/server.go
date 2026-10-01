@@ -286,10 +286,7 @@ func (c *client) alive(now time.Time) bool {
 	return false
 }
 
-func stickByte(v float64, invert bool) byte {
-	if invert {
-		v = -v
-	}
+func stickByte(v float64) byte {
 	return byte(math.Round(127.5 + math.Max(-1, math.Min(1, v))*127.5))
 }
 
@@ -315,8 +312,9 @@ func encodePadData(id byte, counter uint32, p Pad, now time.Time) []byte {
 		bit(protocol.BtnX, 0x10) | bit(protocol.BtnR, 0x08) | bit(protocol.BtnL, 0x04) |
 		bit(protocol.BtnZR, 0x02) | bit(protocol.BtnZL, 0x01)
 	out = append(out, btn1, btn2, bit(protocol.BtnHome, 1), bit(protocol.BtnCapture, 1))
-	// DSU sticks: 0-255, Y increases downward.
-	out = append(out, stickByte(p.LX, false), stickByte(p.LY, true), stickByte(p.RX, false), stickByte(p.RY, true))
+	// DSU sticks: 0-255, plus rightward and upward (the CemuHook spec; Eden
+	// and other yuzu forks read them that way).
+	out = append(out, stickByte(p.LX), stickByte(p.LY), stickByte(p.RX), stickByte(p.RY))
 	// Analog D-pad L,D,R,U, Y,B,A,X, R1,L1 then R2,L2.
 	analog := []uint32{protocol.BtnLeft, protocol.BtnDown, protocol.BtnRight, protocol.BtnUp,
 		protocol.BtnY, protocol.BtnB, protocol.BtnA, protocol.BtnX, protocol.BtnR, protocol.BtnL,

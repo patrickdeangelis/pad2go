@@ -120,7 +120,7 @@ func TestPadDataFlow(t *testing.T) {
 	if data[20] != 0 || data[21] != 0x20|0x01 { // btn2: A→Circle, ZL→L2
 		t.Fatalf("buttons %x %x", data[20], data[21])
 	}
-	if data[24] != 255 || data[25] != 0 { // LX full right, LY full up (DSU Y is inverted)
+	if data[24] != 255 || data[25] != 255 { // LX full right, LY full up
 		t.Fatalf("sticks %v", data[24:28])
 	}
 	f := func(off int) float32 { return math.Float32frombits(binary.LittleEndian.Uint32(data[off:])) }
