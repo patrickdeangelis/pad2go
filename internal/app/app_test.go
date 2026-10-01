@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"hash/crc32"
 	"math"
 	"net"
@@ -148,7 +149,7 @@ func TestNoCombineAndSlotLimit(t *testing.T) {
 	if !a.Full() {
 		t.Fatal("should be full")
 	}
-	if err := a.AddDevice(ctx, newDev("P", protocol.ProController2PID)); err != ErrFull {
+	if err := a.AddDevice(ctx, newDev("P", protocol.ProController2PID)); !errors.Is(err, ErrFull) {
 		t.Fatalf("err %v", err)
 	}
 	if !a.Connected("L") || a.Connected("P") {
@@ -368,7 +369,7 @@ func TestPlayersWatchRumbleDisconnect(t *testing.T) {
 		t.Fatal("no sample")
 	}
 	cancel()
-	if _, _, err := a.Watch(3); err != ErrNoPlayer {
+	if _, _, err := a.Watch(3); !errors.Is(err, ErrNoPlayer) {
 		t.Fatalf("watch empty slot: %v", err)
 	}
 

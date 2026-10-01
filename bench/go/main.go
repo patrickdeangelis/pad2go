@@ -110,8 +110,11 @@ func makeReports(count int, gamecube bool) [][]byte {
 
 var calBytes = append(append(packStick(2048, 2048), packStick(1500, 1500)...), packStick(1500, 1500)...)
 
-var sinkF float64
-var sinkB []byte
+// Sinks keep the compiler from eliding the measured work; they are only written.
+var (
+	sinkF float64 //nolint:unused
+	sinkB []byte  //nolint:unused
+)
 
 func timerOverhead() stats {
 	samples := make([]int64, n)
@@ -227,16 +230,18 @@ func benchDSU() stats {
 	}
 	defer cli.Close()
 	buf := make([]byte, 256)
-	cli.Write(dsucPacket(0x100002, make([]byte, 8)))
+	if _, err := cli.Write(dsucPacket(0x100002, make([]byte, 8))); err != nil {
+		panic(err)
+	}
 	// Wait until the subscription registers.
 	for {
 		srv.Publish(dsu.Pad{})
-		cli.SetReadDeadline(time.Now().Add(10 * time.Millisecond))
+		_ = cli.SetReadDeadline(time.Now().Add(10 * time.Millisecond))
 		if _, err := cli.Read(buf); err == nil {
 			break
 		}
 	}
-	cli.SetReadDeadline(time.Time{})
+	_ = cli.SetReadDeadline(time.Time{})
 
 	cal := protocol.ParseStickCalibration(calBytes)
 	opt := protocol.ParseOptions{ProductID: protocol.ProController2PID}
@@ -256,7 +261,7 @@ func benchDSU() stats {
 	}
 	return measure(pads, func(p dsu.Pad) {
 		srv.Publish(p)
-		cli.Read(buf)
+		_, _ = cli.Read(buf)
 	})
 }
 
@@ -353,5 +358,7 @@ func main() {
 	res["gc"] = map[string]any{"num_gc": ms.NumGC, "pause_total_ns": ms.PauseTotalNs}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", " ")
-	enc.Encode(res)
+	if err := enc.Encode(res); err != nil {
+		panic(err)
+	}
 }

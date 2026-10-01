@@ -1,0 +1,20 @@
+name: Set up pad2go build
+description: Go from go.mod plus each platform's window build dependencies.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+    - name: Linux window dependencies
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev
+        # webview_go asks for webkit2gtk-4.0; this alias maps it to 4.1.
+        echo "PKG_CONFIG_PATH=$GITHUB_WORKSPACE/packaging/linux" >> "$GITHUB_ENV"
+    - name: Windows WebView2 header shim
+      if: runner.os == 'Windows'
+      shell: bash
+      run: echo "CGO_CXXFLAGS=-I$(cygpath -m "$GITHUB_WORKSPACE")/packaging/windows/include" >> "$GITHUB_ENV"

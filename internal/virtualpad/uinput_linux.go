@@ -126,13 +126,14 @@ func (uinputBackend) NewPad(onRumble RumbleFunc) (Pad, error) {
 		return nil, fmt.Errorf("configure uinput: %w", err)
 	}
 
-	// Legacy struct uinput_user_dev setup.
+	// Legacy struct uinput_user_dev setup. Writing fixed-size values to a
+	// bytes.Buffer cannot fail.
 	var dev bytes.Buffer
 	name := make([]byte, 80)
 	copy(name, "pad2go Xbox 360 Controller")
 	dev.Write(name)
-	binary.Write(&dev, binary.LittleEndian, [4]uint16{busUSB, 0x045e, 0x028e, 0x0110})
-	binary.Write(&dev, binary.LittleEndian, uint32(16)) // ff_effects_max
+	_ = binary.Write(&dev, binary.LittleEndian, [4]uint16{busUSB, 0x045e, 0x028e, 0x0110})
+	_ = binary.Write(&dev, binary.LittleEndian, uint32(16)) // ff_effects_max
 	var absmax, absmin, absfuzz, absflat [absCnt]int32
 	for _, a := range []int{absX, absY, absRX, absRY} {
 		absmin[a], absmax[a], absfuzz[a], absflat[a] = -32768, 32767, 16, 128
@@ -144,7 +145,7 @@ func (uinputBackend) NewPad(onRumble RumbleFunc) (Pad, error) {
 		absmin[a], absmax[a] = -1, 1
 	}
 	for _, arr := range [][absCnt]int32{absmax, absmin, absfuzz, absflat} {
-		binary.Write(&dev, binary.LittleEndian, arr)
+		_ = binary.Write(&dev, binary.LittleEndian, arr)
 	}
 	if _, err := f.Write(dev.Bytes()); err != nil {
 		f.Close()
@@ -160,10 +161,11 @@ func (uinputBackend) NewPad(onRumble RumbleFunc) (Pad, error) {
 }
 
 func (p *uinputPad) event(buf *bytes.Buffer, typ, code uint16, value int32) {
-	buf.Write(make([]byte, timevalSize))
-	binary.Write(buf, binary.LittleEndian, typ)
-	binary.Write(buf, binary.LittleEndian, code)
-	binary.Write(buf, binary.LittleEndian, value)
+	ev := make([]byte, timevalSize+8) // zero timeval, then type, code, value
+	binary.LittleEndian.PutUint16(ev[timevalSize:], typ)
+	binary.LittleEndian.PutUint16(ev[timevalSize+2:], code)
+	binary.LittleEndian.PutUint32(ev[timevalSize+4:], uint32(value))
+	buf.Write(ev)
 }
 
 func (p *uinputPad) Update(s mapping.XboxState) error {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"math"
 	"testing"
 )
@@ -206,7 +207,7 @@ func TestParseReportJoyCon(t *testing.T) {
 	if r.BatteryVoltage != 3.9 || r.Accel[0] != -4096 || r.Gyro[0] != 100 || r.Gyro[2] != -50 {
 		t.Fatalf("sensors %+v", r)
 	}
-	if _, err := ParseReport(make([]byte, 20), ParseOptions{}); err != ErrShortReport {
+	if _, err := ParseReport(make([]byte, 20), ParseOptions{}); !errors.Is(err, ErrShortReport) {
 		t.Fatalf("short report err %v", err)
 	}
 }

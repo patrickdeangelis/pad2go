@@ -121,7 +121,7 @@ func TestStaticAndSecurityHeaders(t *testing.T) {
 	srv, _ := serve(t)
 	resp := do(t, "GET", srv.URL+"/", "", nil)
 	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 || !strings.Contains(string(body), "<title>Pad2Go</title>") {
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "<title>Pad2Go</title>") {
 		t.Fatalf("index: %d", resp.StatusCode)
 	}
 	if !strings.Contains(resp.Header.Get("Content-Security-Policy"), "default-src 'self'") || resp.Header.Get("X-Frame-Options") != "DENY" {

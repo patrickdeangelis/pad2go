@@ -1,0 +1,27 @@
+version: "2"
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - errorlint
+    - unconvert
+    - usestdlibvars
+  settings:
+    errcheck:
+      exclude-functions:
+        # Closing is best effort on paths that already report another error.
+        - (io.Closer).Close
+        - (net.Conn).Close
+        - (*net.UDPConn).Close
+        # ViGEm's void functions: Call's error is GetLastError noise.
+        - (*golang.org/x/sys/windows.LazyProc).Call
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters: [errcheck]
+
+formatters:
+  enable:
+    - gofmt

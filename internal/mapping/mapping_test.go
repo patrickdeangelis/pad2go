@@ -1,6 +1,7 @@
 package mapping
 
 import (
+	"errors"
 	"math"
 	"testing"
 
@@ -225,7 +226,7 @@ func TestJoinRules(t *testing.T) {
 	rules, _ := NewRules("Xbox", RemapSettings{})
 	pro := rules.NewPlayerPad()
 	_ = pro.Join("P", p.KindPro, vertical)
-	if pro.CanJoin(p.KindJoyConLeft) || pro.Join("L", p.KindJoyConLeft, vertical) != ErrCannotJoin {
+	if pro.CanJoin(p.KindJoyConLeft) || !errors.Is(pro.Join("L", p.KindJoyConLeft, vertical), ErrCannotJoin) {
 		t.Fatal("a Pro Controller pad takes no one else")
 	}
 	jc := rules.NewPlayerPad()
