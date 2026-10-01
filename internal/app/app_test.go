@@ -250,14 +250,7 @@ func TestDSUPublishesOrientedMotion(t *testing.T) {
 	r := newDev("R", protocol.JoyCon2RightPID)
 	_ = a.AddDevice(context.Background(), r)
 
-	// Subscribe to all pads (DSUC pad-data request, flags 0).
-	payload := binary.LittleEndian.AppendUint32(nil, 0x100002)
-	payload = append(payload, make([]byte, 8)...)
-	req := append([]byte("DSUC\xe9\x03"), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-	binary.LittleEndian.PutUint16(req[6:], uint16(len(payload)))
-	req = append(req, payload...)
-	binary.LittleEndian.PutUint32(req[8:], crc32.ChecksumIEEE(req))
-	cli.Write(req)
+	subscribeAll(cli)
 
 	buf := make([]byte, 256)
 	for range 50 {
@@ -282,6 +275,62 @@ func TestDSUPublishesOrientedMotion(t *testing.T) {
 		return
 	}
 	t.Fatal("no DSU packet received")
+}
+
+// subscribeAll sends a DSUC pad-data request for all pads (flags 0).
+func subscribeAll(cli *net.UDPConn) {
+	payload := binary.LittleEndian.AppendUint32(nil, 0x100002)
+	payload = append(payload, make([]byte, 8)...)
+	req := append([]byte("DSUC\xe9\x03"), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+	binary.LittleEndian.PutUint16(req[6:], uint16(len(payload)))
+	req = append(req, payload...)
+	binary.LittleEndian.PutUint32(req[8:], crc32.ChecksumIEEE(req))
+	cli.Write(req)
+}
+
+func TestDSUPublishesJoyConPairAsOnePad(t *testing.T) {
+	srv, err := dsu.Listen("127.0.0.1:0", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	cli, err := net.DialUDP("udp", nil, srv.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cli.Close()
+
+	a := New(config.Default(), &virtualpad.Recorder{}, srv, nil)
+	l, r := newDev("AA:00:00:00:00:01", protocol.JoyCon2LeftPID), newDev("AA:00:00:00:00:02", protocol.JoyCon2RightPID)
+	_ = a.AddDevice(context.Background(), l)
+	_ = a.AddDevice(context.Background(), r)
+	subscribeAll(cli)
+
+	buf := make([]byte, 256)
+	for range 100 {
+		l.send(protocol.Input{Buttons: protocol.BtnUp, Left: protocol.Stick{X: 1}})
+		r.send(protocol.Input{Buttons: protocol.BtnPlus | protocol.BtnHome, Right: protocol.Stick{X: -1}, Gyro: [3]int16{100, 0, 0}})
+		cli.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
+		n, err := cli.Read(buf)
+		if err != nil {
+			continue
+		}
+		data := buf[16:n]
+		if data[4] != 0 || data[6] != dsu.ModelDS4 || data[8] != 0xAA || data[13] != 0x01 {
+			t.Fatalf("the pair should be DSU pad 0, a full pad named after the left Joy-Con: % x", data[4:14])
+		}
+		if data[20]&0x10 == 0 || data[22] != 1 {
+			continue // the right Joy-Con hasn't reported since the left one did
+		}
+		if data[20] != 0x10|0x08 || data[24] != 255 || data[26] != 0 {
+			t.Fatalf("merged state: buttons %02x home %d sticks LX %d RX %d", data[20], data[22], data[24], data[26])
+		}
+		if pitch := math.Float32frombits(binary.LittleEndian.Uint32(data[72:])); pitch == 0 {
+			t.Fatal("the pair should carry the right Joy-Con's motion")
+		}
+		return
+	}
+	t.Fatal("no merged DSU packet received")
 }
 
 func TestPlayersWatchRumbleDisconnect(t *testing.T) {

@@ -35,6 +35,9 @@ type Config struct {
 	ABXYMode string `yaml:"abxy_mode"`
 	// CombineJoyCons merges a left and right Joy-Con into one pad.
 	CombineJoyCons bool `yaml:"combine_joycons"`
+	// PairGyro picks which Joy-Con of a combined pair supplies the pair's
+	// motion: "Right" (default) or "Left".
+	PairGyro string `yaml:"joycon_pair_gyro"`
 	// JoyConHoldMode maps a Joy-Con address to Vertical or Horizontal.
 	JoyConHoldMode map[string]string `yaml:"joycon_hold_mode"`
 	// DefaultHoldMode is used for single Joy-Cons not listed in JoyConHoldMode.
@@ -102,6 +105,7 @@ func Default() *Config {
 		MaxControllers:       4,
 		ABXYMode:             "Xbox",
 		CombineJoyCons:       true,
+		PairGyro:             "Right",
 		JoyConHoldMode:       map[string]string{},
 		DefaultHoldMode:      HoldVertical,
 		GCTriggerMode:        "100% at Bump",
@@ -208,6 +212,9 @@ func (c *Config) Validate() error {
 	if c.DefaultHoldMode != HoldVertical && c.DefaultHoldMode != HoldHorizontal {
 		return fmt.Errorf("default_hold_mode: want Vertical or Horizontal, got %q", c.DefaultHoldMode)
 	}
+	if c.PairGyro != "Right" && c.PairGyro != "Left" {
+		return fmt.Errorf("joycon_pair_gyro: want Right or Left, got %q", c.PairGyro)
+	}
 	switch c.GCTriggerMode {
 	case "Hair Trigger", "100% at Bump", "100% at Max":
 	default:
@@ -273,6 +280,7 @@ max_controllers: 4
 # Xbox = positional layout (Switch B -> Xbox A), Switch = match printed labels.
 abxy_mode: Xbox
 combine_joycons: true
+joycon_pair_gyro: Right         # Right | Left: whose motion a combined pair sends
 default_hold_mode: Vertical     # Vertical | Horizontal (single Joy-Con)
 joycon_hold_mode: {}            # per-address override, e.g. "AA:BB:...": Horizontal
 

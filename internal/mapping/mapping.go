@@ -59,6 +59,14 @@ type Frame struct {
 	Controller protocol.Input
 	// Motion is the reporting controller's IMU, rotated like its sticks.
 	Motion Motion
+	// Player is the player slot's own state in Switch terms: a Joy-Con
+	// pair's merged buttons and both sticks, or a lone controller's input.
+	Player protocol.Input
+	// PlayerMotion is the slot's motion: for a Joy-Con pair, the side
+	// chosen by Rules.PairGyroLeft (the other until that side reports).
+	PlayerMotion Motion
+	// Pair reports a Joy-Con pair (two controllers in the slot).
+	Pair bool
 }
 
 // RemapSettings names the target of each remappable source button:
@@ -73,6 +81,9 @@ type RemapSettings struct {
 type Rules struct {
 	byLabel bool
 	remaps  []remap
+	// PairGyroLeft makes a Joy-Con pair's motion come from the left
+	// Joy-Con instead of the right.
+	PairGyroLeft bool
 }
 
 type remap struct {
@@ -126,6 +137,8 @@ type member struct {
 	kind     protocol.Kind
 	sideways bool
 	last     protocol.Input // after remap, for merging
+	motion   Motion
+	reported bool
 }
 
 // NewPlayerPad returns an empty player pad.
@@ -192,23 +205,36 @@ func (p *PlayerPad) Update(id string, in protocol.Input) (f Frame, ok bool) {
 	// Remapped buttons bypass rotation.
 	st.Buttons |= extra
 	m.last = st
+	m.motion = motion(in.Accel, in.Gyro, m.kind, sideways)
+	m.reported = true
 
-	out := st
+	out, playerMotion := st, m.motion
 	if !alone {
 		var left, right protocol.Input
+		var source *member
+		want := protocol.KindJoyConRight
+		if p.rules.PairGyroLeft {
+			want = protocol.KindJoyConLeft
+		}
 		for _, mm := range p.members {
 			if mm.kind == protocol.KindJoyConLeft {
 				left = mm.last
 			} else {
 				right = mm.last
 			}
+			if mm.reported && (source == nil || mm.kind == want) {
+				source = mm
+			}
 		}
-		out = merge(left, right)
+		out, playerMotion = merge(left, right), source.motion
 	}
 	return Frame{
-		Xbox:       toXbox(out, p.rules.byLabel, alone && m.kind == protocol.KindGameCube),
-		Controller: st,
-		Motion:     motion(in.Accel, in.Gyro, m.kind, sideways),
+		Xbox:         toXbox(out, p.rules.byLabel, alone && m.kind == protocol.KindGameCube),
+		Controller:   st,
+		Motion:       m.motion,
+		Player:       out,
+		PlayerMotion: playerMotion,
+		Pair:         !alone,
 	}, true
 }
 

@@ -1,0 +1,98 @@
+name: Release
+# Publishing a GitHub release builds every platform and attaches the
+# downloads to it. Run it by hand with a tag to rebuild an existing release.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and upload to (e.g. v0.1.0)
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Build universal Pad2Go.app
+        run: |
+          ARCHS="arm64 amd64" VERSION="${TAG#v}" packaging/build-macos-app.sh dist
+          ditto -c -k --keepParent dist/Pad2Go.app "pad2go-$TAG-macos-universal.zip"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: macos
+          path: pad2go-*.zip
+
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - name: Cross-compile pad2go.exe
+        run: |
+          VERSION="${TAG#v}" packaging/build-windows.sh "$PWD/dist"
+          (cd dist && zip -9 "../pad2go-$TAG-windows-amd64.zip" pad2go.exe)
+      - uses: actions/upload-artifact@v5
+        with:
+          name: windows
+          path: pad2go-*.zip
+
+  linux:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: amd64
+          - runner: ubuntu-22.04-arm
+            arch: arm64
+    # 22.04's glibc keeps the binary running on Debian 12 and newer.
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Window dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev
+      - name: Build
+        env:
+          PKG_CONFIG_PATH: ${{ github.workspace }}/packaging/linux
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w -X main.version=${TAG#v}" -o dist/pad2go ./cmd/pad2go
+          tar -C dist -czf "pad2go-$TAG-linux-${{ matrix.arch }}.tar.gz" pad2go
+      - uses: actions/upload-artifact@v5
+        with:
+          name: linux-${{ matrix.arch }}
+          path: pad2go-*.tar.gz
+
+  publish:
+    needs: [macos, windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          merge-multiple: true
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum pad2go-* > SHA256SUMS
+          gh release upload "$TAG" pad2go-* SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"

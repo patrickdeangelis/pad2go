@@ -63,6 +63,7 @@ func New(cfg *config.Config, backend virtualpad.Backend, dsuServer *dsu.Server, 
 		GL: cfg.GLMapping, GR: cfg.GRMapping,
 		SLL: cfg.SLLMapping, SRL: cfg.SRLMapping, SLR: cfg.SLRMapping, SRR: cfg.SRRMapping,
 	})
+	rules.PairGyroLeft = cfg.PairGyro == "Left"
 	for _, w := range warnings {
 		log.Warn(w)
 	}
@@ -268,6 +269,12 @@ func (s *slot) onInput(m *member, in protocol.Input) {
 	s.mu.Lock()
 	f, ok := s.pad.Update(m.dev.Address(), in)
 	m.pressed = in.Buttons
+	// A Joy-Con pair is one DSU pad, named after its first Joy-Con so it
+	// keeps the DSU slot that Joy-Con had alone.
+	dsuID := m.dev
+	if ok && f.Pair && len(s.members) > 0 {
+		dsuID = s.members[0].dev
+	}
 	if ok {
 		var pressed uint32
 		for _, x := range s.members {
@@ -288,23 +295,38 @@ func (s *slot) onInput(m *member, in protocol.Input) {
 		m.battery.Store(int32(protocol.BatteryPercent(in.BatteryVoltage)))
 	}
 	if ok && a.dsu != nil {
-		a.publishMotion(m.dev, in, f)
+		a.publishMotion(dsuID, s.lowestBattery(), f)
 	}
 }
 
-func (a *App) publishMotion(d Device, in protocol.Input, f mapping.Frame) {
+// lowestBattery is the lowest known battery percent among the slot's
+// controllers, or -1.
+func (s *slot) lowestBattery() int {
+	low := -1
+	for _, m := range s.snapshot() {
+		if b := int(m.battery.Load()); b >= 0 && (low < 0 || b < low) {
+			low = b
+		}
+	}
+	return low
+}
+
+// publishMotion sends the player's state to DSU clients: a Joy-Con pair as
+// one full pad (buttons, both sticks, the chosen side's motion), any other
+// controller as itself.
+func (a *App) publishMotion(id Device, battery int, f mapping.Frame) {
 	model := byte(dsu.ModelDS4)
-	if !d.Kind().ProLike() {
+	if !f.Pair && !id.Kind().ProLike() {
 		model = dsu.ModelJoyCon
 	}
-	gyro := f.Motion.Gyro
-	gyro[1] *= dsu.YawScale(a.cfg.CemuhookSensitivity)
-	c := f.Controller
+	motion := f.PlayerMotion
+	motion.Gyro[1] *= dsu.YawScale(a.cfg.CemuhookSensitivity)
+	p := f.Player
 	a.dsu.Publish(dsu.Pad{
-		MAC: addressMAC(d.Address()), Model: model,
-		Battery: dsu.BatteryLevel(protocol.BatteryPercent(in.BatteryVoltage)),
-		Buttons: c.Buttons, LX: c.Left.X, LY: c.Left.Y, RX: c.Right.X, RY: c.Right.Y,
-		Accel: f.Motion.Accel, Gyro: gyro,
+		MAC: addressMAC(id.Address()), Model: model,
+		Battery: dsu.BatteryLevel(battery),
+		Buttons: p.Buttons, LX: p.Left.X, LY: p.Left.Y, RX: p.Right.X, RY: p.Right.Y,
+		Accel: motion.Accel, Gyro: motion.Gyro,
 	})
 }
 

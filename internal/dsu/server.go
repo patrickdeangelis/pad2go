@@ -347,6 +347,8 @@ func YawScale(sensitivity int) float32 {
 // BatteryLevel maps a percentage to the DSU battery enum.
 func BatteryLevel(percent int) byte {
 	switch {
+	case percent < 0:
+		return 0x00 // not applicable / unknown
 	case percent <= 5:
 		return 0x01
 	case percent <= 10:

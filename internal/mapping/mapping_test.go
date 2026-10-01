@@ -178,6 +178,35 @@ func TestPairMotionIsNotRotated(t *testing.T) {
 	}
 }
 
+func TestPairPlayerStateAndMotionSource(t *testing.T) {
+	pad := pair(t)
+	left := p.Input{Buttons: p.BtnUp, Left: p.Stick{X: 1}, Gyro: [3]int16{0, 0, 50}}
+	right := p.Input{Buttons: p.BtnA, Right: p.Stick{Y: -1}, Gyro: [3]int16{100, 0, 0}}
+	f := update(t, pad, "L", left)
+	if !f.Pair || f.PlayerMotion != f.Motion {
+		t.Fatalf("until the right Joy-Con reports, the pair's motion is the left one's: %+v", f)
+	}
+	rightMotion := update(t, pad, "R", right).Motion
+	f = update(t, pad, "L", left)
+	if f.Player.Buttons != p.BtnUp|p.BtnA || f.Player.Left.X != 1 || f.Player.Right.Y != -1 {
+		t.Fatalf("player state %+v", f.Player)
+	}
+	if f.PlayerMotion != rightMotion {
+		t.Fatalf("pair motion should come from the right Joy-Con: %+v, want %+v", f.PlayerMotion, rightMotion)
+	}
+
+	pad.rules.PairGyroLeft = true
+	f = update(t, pad, "R", right)
+	if f.PlayerMotion == f.Motion || f.PlayerMotion.Gyro[1] == 0 {
+		t.Fatalf("PairGyroLeft should take the left Joy-Con's motion: %+v", f.PlayerMotion)
+	}
+
+	lone := update(t, single(t, "Xbox", p.KindPro, vertical, RemapSettings{}), "c", right)
+	if lone.Pair || lone.PlayerMotion != lone.Motion || lone.Player.Buttons != lone.Controller.Buttons {
+		t.Fatalf("a lone controller's player state is its own: %+v", lone)
+	}
+}
+
 func TestLeaveRestoresSingleOrientation(t *testing.T) {
 	pad := pair(t)
 	if empty := pad.Leave("L"); empty {

@@ -9,6 +9,7 @@ import (
 // Settings is the part of the configuration the UI edits, in the UI's shape.
 type Settings struct {
 	Combine     bool              `json:"combine"`
+	PairGyro    string            `json:"pairGyro"` // "Right" or "Left": a pair's motion source
 	Gyro        bool              `json:"gyro"`
 	Layout      string            `json:"layout"`      // "Xbox" (by position) or "Switch" (by label)
 	Vibration   int               `json:"vibration"`   // 0-10, 5 = 100%
@@ -50,7 +51,7 @@ type Remaps struct {
 // SettingsFrom extracts the UI settings from a configuration.
 func SettingsFrom(c *config.Config) Settings {
 	return Settings{
-		Combine: c.CombineJoyCons, Gyro: c.CemuhookEnabled(), Layout: c.ABXYMode,
+		Combine: c.CombineJoyCons, PairGyro: c.PairGyro, Gyro: c.CemuhookEnabled(), Layout: c.ABXYMode,
 		Vibration: c.VibrationStrength, Sensitivity: c.CemuhookSensitivity,
 		Host: c.CemuhookHost, Port: c.CemuhookPort, Max: c.MaxControllers,
 		Backend: c.Output, HostMAC: c.HostMAC, Hold: c.DefaultHoldMode,
@@ -70,7 +71,7 @@ func SettingsFrom(c *config.Config) Settings {
 
 // Apply writes s into c. Callers validate c afterwards.
 func (s Settings) Apply(c *config.Config) {
-	c.CombineJoyCons = s.Combine
+	c.CombineJoyCons, c.PairGyro = s.Combine, s.PairGyro
 	c.GyroPassthroughMode = "Default"
 	if s.Gyro {
 		c.GyroPassthroughMode = "Cemuhook"

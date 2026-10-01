@@ -31,7 +31,7 @@
 
         <section id="panel-controllers" role="tabpanel" aria-labelledby="tab-controllers">
           <header class="page-header"><p id="controllers-subtitle">Prontos para o próximo jogo.</p><button id="connect" type="button" class="push">Conectar controle</button></header>
-          <p id="platform-notice" class="note" hidden>No macOS não há controle Xbox virtual: o Pad2Go envia movimento para emuladores via DSU.</p>
+          <p id="platform-notice" class="note" hidden>No macOS não há controle Xbox virtual: o Pad2Go envia botões, analógicos e movimento para emuladores (como o Eden) via DSU.</p>
 
           <div id="discovery" class="group discovery" hidden aria-labelledby="discovery-title">
             <div class="row">
@@ -74,7 +74,7 @@
         </section>
 
         <section id="panel-motion" role="tabpanel" aria-labelledby="tab-motion" hidden>
-          <header class="page-header"><p>Giroscópio para Cemu, Ryujinx, Dolphin e outros emuladores via CemuHook/DSU.</p></header>
+          <header class="page-header"><p>Para Eden, Ryujinx, Cemu, Dolphin e outros emuladores via CemuHook/DSU: giroscópio, botões e analógicos. Um par de Joy-Cons unido aparece como um único controle.</p></header>
           <div class="group">
             <label class="row"><div class="row-label"><span>Enviar movimento</span><small>Servidor CemuHook / DSU</small></div><div class="row-control"><input type="checkbox" switch class="switch" data-config="gyro"></div></label>
             <div class="row"><div class="row-label"><span>Servidor</span><small id="motion-address"></small></div><div class="row-control"><span id="motion-state" class="status">Desativado</span><button id="copy-address" type="button" class="push">Copiar endereço</button></div></div>
@@ -85,6 +85,7 @@
           <h2 class="group-title">Ajustes</h2>
           <div class="group">
             <div class="row"><div class="row-label"><label for="sensitivity">Sensibilidade horizontal</label><small>Níveis 1–5 ajustam só a rotação horizontal.</small></div><div class="row-control slider"><input id="sensitivity" type="range" min="1" max="5" step="1" data-config="sensitivity"><output id="sensitivity-value" for="sensitivity"></output></div></div>
+            <div class="row"><div class="row-label"><label for="pair-gyro">Giroscópio do par de Joy-Cons</label><small>Qual Joy-Con move a câmera/mira quando estão unidos</small></div><div class="row-control"><select id="pair-gyro" data-config="pairGyro"><option value="Right">Direito</option><option value="Left">Esquerdo</option></select></div></div>
             <div class="row"><div class="row-label"><label for="host">Endereço do servidor</label><small class="field-error" id="host-error"></small></div><div class="row-control"><input id="host" type="text" data-config="host" spellcheck="false" aria-describedby="host-error"></div></div>
             <div class="row"><div class="row-label"><label for="port">Porta</label><small class="field-error" id="port-error"></small></div><div class="row-control"><input id="port" type="number" min="1" max="65535" data-config="port" aria-describedby="port-error"></div></div>
           </div>

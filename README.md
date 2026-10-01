@@ -60,6 +60,10 @@ Settings-style lists; on Windows, Fluent; on Linux, Adwaita. Dark mode
 follows the system.
 `nobluetooth` builds without Bluetooth, for development with `-demo`.
 
+Publishing a GitHub release runs `.github/workflows/release.yml`, which
+attaches a universal `Pad2Go.app` (zip), `pad2go.exe` (zip), Linux
+amd64/arm64 tarballs and `SHA256SUMS` to the release.
+
 ### Windows
 
 1. Install the [ViGEmBus](https://github.com/nefarius/ViGEmBus) driver.
@@ -78,9 +82,14 @@ Add a udev rule (e.g. `KERNEL=="uinput", GROUP="input", MODE="0660"`) or run as 
 
 ### macOS
 
-macOS has no virtual gamepad API, so pad2go runs motion-only: turn on
-**Movimento** to feed gyro to emulators over DSU. macOS doesn't expose the
-adapter MAC, so set it in Ajustes → Conexão if you want pairing.
+macOS has no virtual gamepad API, so pad2go feeds emulators over DSU only: turn
+on **Movimento** and point the emulator's CemuHook/UDP input at
+`127.0.0.1:26760`. DSU carries buttons (Home as PS, Capture as the touchpad
+click), both sticks and motion, so emulators that take DSU as a controller
+(Eden and other yuzu forks) work without a virtual gamepad. A combined Joy-Con
+pair is one DSU pad with the motion of the side set by `joycon_pair_gyro`.
+macOS doesn't expose the adapter MAC, so set it in Ajustes → Conexão if you
+want pairing.
 
 ## Configuration
 
@@ -94,6 +103,7 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 | `host_mac` | this PC's Bluetooth MAC; auto-detected on Windows/Linux |
 | `abxy_mode` | `Xbox` (positional: Switch B → Xbox A) or `Switch` (by label) |
 | `combine_joycons` | merge a left + right Joy-Con into one pad |
+| `joycon_pair_gyro` | `Right` / `Left`: which Joy-Con of a pair sends motion over DSU |
 | `default_hold_mode`, `joycon_hold_mode` | `Vertical` / `Horizontal` for single Joy-Cons |
 | `gc_trigger_mode` | `Hair Trigger`, `100% at Bump`, `100% at Max` |
 | `joystick_deadzone_percent` | per family: `joycon`, `pro_controller`, `nso_gamecube_controller` |
@@ -172,6 +182,12 @@ internal/window      native window (system WebView)
 internal/demo        simulated radio for -demo
 internal/config      YAML config
 ```
+
+## Support
+
+If pad2go is useful to you, you can buy me a coffee:
+
+<a href="https://buymeacoffee.com/patrickdeangelis"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="48"></a>
 
 ## License
 
