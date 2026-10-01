@@ -200,18 +200,25 @@ func (m *Manager) connect(ctx context.Context, a Advert, host uint64, hostKnown 
 		l.dropped = true
 		attached := l.attached
 		l.mu.Unlock()
+		if !attached {
+			cancel() // stop initializing a dead link
+		}
 		m.Log.Info("controller disconnected", "addr", a.Addr)
 		m.emit(Event{Stage: Dropped, Addr: a.Addr, Model: model})
 		if attached {
 			m.App.RemoveDevice(a.Addr)
 		}
 	})
-	if err != nil {
+	// A controller bonded elsewhere only answers that host: the connection
+	// times out, or opens and drops during initialization.
+	bondedElsewhere := func(err error) error {
 		if !a.Adv.Pairing() && (!hostKnown || a.Adv.ReconnectMAC != host) {
-			// A controller bonded elsewhere only answers that host.
 			return fmt.Errorf("%w: %w (bonded to %s)", err, ErrBondedElsewhere, bonded)
 		}
 		return err
+	}
+	if err != nil {
+		return bondedElsewhere(err)
 	}
 	m.emit(Event{Stage: Connecting, Addr: a.Addr, Model: model})
 
@@ -232,6 +239,12 @@ func (m *Manager) connect(ctx context.Context, a Advert, host uint64, hostKnown 
 	}
 	if err != nil {
 		_ = c.Close()
+		l.mu.Lock()
+		dropped := l.dropped
+		l.mu.Unlock()
+		if dropped {
+			return bondedElsewhere(fmt.Errorf("%w: %w", ErrDropped, err))
+		}
 		return err
 	}
 
