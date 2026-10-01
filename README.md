@@ -61,8 +61,8 @@ follows the system.
 `nobluetooth` builds without Bluetooth, for development with `-demo`.
 
 Publishing a GitHub release runs `.github/workflows/release.yml`, which
-attaches a universal `Pad2Go.app` (zip), `pad2go.exe` (zip), Linux
-amd64/arm64 tarballs and `SHA256SUMS` to the release.
+attaches a universal `Pad2Go.app` disk image (`packaging/build-macos-dmg.sh`),
+`pad2go.exe` (zip), Linux amd64/arm64 tarballs and `SHA256SUMS` to the release.
 
 ### Windows
 
@@ -79,6 +79,13 @@ sudo modprobe uinput
 ```
 
 Add a udev rule (e.g. `KERNEL=="uinput", GROUP="input", MODE="0660"`) or run as root.
+
+For a launcher entry with the app icon, put `pad2go` on your `PATH`, then:
+
+```bash
+install -Dm644 pad2go.desktop ~/.local/share/applications/pad2go.desktop
+install -Dm644 pad2go.png ~/.local/share/icons/hicolor/1024x1024/apps/pad2go.png
+```
 
 ### macOS
 
@@ -183,12 +190,6 @@ internal/window      native window (system WebView)
 internal/demo        simulated radio for -demo
 internal/config      YAML config
 ```
-
-## Support
-
-If pad2go is useful to you, you can buy me a coffee:
-
-<a href="https://buymeacoffee.com/patrickdeangelis"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="48"></a>
 
 ## License
 

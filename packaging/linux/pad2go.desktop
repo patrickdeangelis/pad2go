@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Pad2Go
+Comment=Use Switch 2 controllers on your computer
+Exec=pad2go
+Icon=pad2go
+Terminal=false
+Categories=Game;Utility;
+StartupWMClass=pad2go

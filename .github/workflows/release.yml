@@ -29,11 +29,11 @@ jobs:
       - name: Build universal Pad2Go.app
         run: |
           ARCHS="arm64 amd64" VERSION="${TAG#v}" packaging/build-macos-app.sh dist
-          ditto -c -k --keepParent dist/Pad2Go.app "pad2go-$TAG-macos-universal.zip"
+          packaging/build-macos-dmg.sh dist/Pad2Go.app "pad2go-$TAG-macos-universal.dmg"
       - uses: actions/upload-artifact@v5
         with:
           name: macos
-          path: pad2go-*.zip
+          path: pad2go-*.dmg
 
   windows:
     runs-on: ubuntu-latest
@@ -77,7 +77,8 @@ jobs:
         run: |
           mkdir -p dist
           go build -trimpath -ldflags "-s -w -X main.version=${TAG#v}" -o dist/pad2go ./cmd/pad2go
-          tar -C dist -czf "pad2go-$TAG-linux-${{ matrix.arch }}.tar.gz" pad2go
+          cp packaging/pad2go.png packaging/linux/pad2go.desktop dist/
+          tar -C dist -czf "pad2go-$TAG-linux-${{ matrix.arch }}.tar.gz" pad2go pad2go.png pad2go.desktop
       - uses: actions/upload-artifact@v5
         with:
           name: linux-${{ matrix.arch }}

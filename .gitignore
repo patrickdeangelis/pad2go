@@ -4,3 +4,4 @@
 /dist/
 /config.yaml
 ViGEmClient.dll
+/cmd/pad2go/*.syso
