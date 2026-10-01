@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.angelispatrick.pad2go</string>
+	<string>io.github.patrickdeangelis.pad2go</string>
 	<key>CFBundleName</key>
 	<string>pad2go</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>

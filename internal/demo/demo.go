@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/angelispatrick/pad2go/internal/controller"
-	"github.com/angelispatrick/pad2go/internal/controller/controllertest"
-	"github.com/angelispatrick/pad2go/internal/lifecycle"
-	"github.com/angelispatrick/pad2go/internal/protocol"
+	"github.com/patrickdeangelis/pad2go/internal/controller"
+	"github.com/patrickdeangelis/pad2go/internal/controller/controllertest"
+	"github.com/patrickdeangelis/pad2go/internal/lifecycle"
+	"github.com/patrickdeangelis/pad2go/internal/protocol"
 )
 
 // HostMAC is the simulated adapter address.

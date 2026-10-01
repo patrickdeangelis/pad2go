@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/angelispatrick/pad2go/internal/app"
-	"github.com/angelispatrick/pad2go/internal/config"
-	"github.com/angelispatrick/pad2go/internal/controller"
-	"github.com/angelispatrick/pad2go/internal/protocol"
+	"github.com/patrickdeangelis/pad2go/internal/app"
+	"github.com/patrickdeangelis/pad2go/internal/config"
+	"github.com/patrickdeangelis/pad2go/internal/controller"
+	"github.com/patrickdeangelis/pad2go/internal/protocol"
 )
 
 // Advert is a supported controller seen while scanning.

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/angelispatrick/pad2go/internal/mapping"
+	"github.com/patrickdeangelis/pad2go/internal/mapping"
 )
 
 // RumbleFunc receives force-feedback from games: large (low-frequency) and

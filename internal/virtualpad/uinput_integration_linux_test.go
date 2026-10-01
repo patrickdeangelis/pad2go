@@ -15,7 +15,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/angelispatrick/pad2go/internal/mapping"
+	"github.com/patrickdeangelis/pad2go/internal/mapping"
 )
 
 // findEventNode locates the evdev node for the pad, creating it under /dev if

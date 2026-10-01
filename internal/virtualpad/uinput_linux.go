@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/angelispatrick/pad2go/internal/mapping"
+	"github.com/patrickdeangelis/pad2go/internal/mapping"
 )
 
 const platformName = "uinput"

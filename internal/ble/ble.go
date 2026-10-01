@@ -14,9 +14,9 @@ import (
 
 	"tinygo.org/x/bluetooth"
 
-	"github.com/angelispatrick/pad2go/internal/controller"
-	"github.com/angelispatrick/pad2go/internal/lifecycle"
-	"github.com/angelispatrick/pad2go/internal/protocol"
+	"github.com/patrickdeangelis/pad2go/internal/controller"
+	"github.com/patrickdeangelis/pad2go/internal/lifecycle"
+	"github.com/patrickdeangelis/pad2go/internal/protocol"
 )
 
 // Adapter wraps the default Bluetooth adapter.

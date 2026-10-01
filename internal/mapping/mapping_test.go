@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	p "github.com/angelispatrick/pad2go/internal/protocol"
+	p "github.com/patrickdeangelis/pad2go/internal/protocol"
 )
 
 const (

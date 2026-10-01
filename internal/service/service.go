@@ -16,12 +16,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/angelispatrick/pad2go/internal/app"
-	"github.com/angelispatrick/pad2go/internal/config"
-	"github.com/angelispatrick/pad2go/internal/dsu"
-	"github.com/angelispatrick/pad2go/internal/lifecycle"
-	"github.com/angelispatrick/pad2go/internal/protocol"
-	"github.com/angelispatrick/pad2go/internal/virtualpad"
+	"github.com/patrickdeangelis/pad2go/internal/app"
+	"github.com/patrickdeangelis/pad2go/internal/config"
+	"github.com/patrickdeangelis/pad2go/internal/dsu"
+	"github.com/patrickdeangelis/pad2go/internal/lifecycle"
+	"github.com/patrickdeangelis/pad2go/internal/protocol"
+	"github.com/patrickdeangelis/pad2go/internal/virtualpad"
 )
 
 // Options configures a Service.

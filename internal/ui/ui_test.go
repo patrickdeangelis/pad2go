@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/angelispatrick/pad2go/internal/app"
-	"github.com/angelispatrick/pad2go/internal/mapping"
-	"github.com/angelispatrick/pad2go/internal/service"
+	"github.com/patrickdeangelis/pad2go/internal/app"
+	"github.com/patrickdeangelis/pad2go/internal/mapping"
+	"github.com/patrickdeangelis/pad2go/internal/service"
 )
 
 type fakeBackend struct {

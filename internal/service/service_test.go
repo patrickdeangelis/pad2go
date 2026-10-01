@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/angelispatrick/pad2go/internal/config"
-	"github.com/angelispatrick/pad2go/internal/controller"
-	"github.com/angelispatrick/pad2go/internal/controller/controllertest"
-	"github.com/angelispatrick/pad2go/internal/lifecycle"
-	"github.com/angelispatrick/pad2go/internal/protocol"
-	"github.com/angelispatrick/pad2go/internal/virtualpad"
+	"github.com/patrickdeangelis/pad2go/internal/config"
+	"github.com/patrickdeangelis/pad2go/internal/controller"
+	"github.com/patrickdeangelis/pad2go/internal/controller/controllertest"
+	"github.com/patrickdeangelis/pad2go/internal/lifecycle"
+	"github.com/patrickdeangelis/pad2go/internal/protocol"
+	"github.com/patrickdeangelis/pad2go/internal/virtualpad"
 )
 
 // radio advertises one Pro Controller 2 bonded to this host whenever it

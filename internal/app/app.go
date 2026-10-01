@@ -13,12 +13,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/angelispatrick/pad2go/internal/config"
-	"github.com/angelispatrick/pad2go/internal/controller"
-	"github.com/angelispatrick/pad2go/internal/dsu"
-	"github.com/angelispatrick/pad2go/internal/mapping"
-	"github.com/angelispatrick/pad2go/internal/protocol"
-	"github.com/angelispatrick/pad2go/internal/virtualpad"
+	"github.com/patrickdeangelis/pad2go/internal/config"
+	"github.com/patrickdeangelis/pad2go/internal/controller"
+	"github.com/patrickdeangelis/pad2go/internal/dsu"
+	"github.com/patrickdeangelis/pad2go/internal/mapping"
+	"github.com/patrickdeangelis/pad2go/internal/protocol"
+	"github.com/patrickdeangelis/pad2go/internal/virtualpad"
 )
 
 // RumbleInterval is how often an active rumble is re-sent (~60 Hz).

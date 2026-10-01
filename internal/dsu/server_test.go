@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/angelispatrick/pad2go/internal/protocol"
+	"github.com/patrickdeangelis/pad2go/internal/protocol"
 )
 
 func clientPacket(msgType uint32, body []byte) []byte {

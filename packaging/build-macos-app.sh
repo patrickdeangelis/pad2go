@@ -28,7 +28,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
 	<key>CFBundleExecutable</key><string>pad2go</string>
-	<key>CFBundleIdentifier</key><string>io.github.angelispatrick.pad2go</string>
+	<key>CFBundleIdentifier</key><string>io.github.patrickdeangelis.pad2go</string>
 	<key>CFBundleName</key><string>Pad2Go</string>
 	<key>CFBundleDisplayName</key><string>Pad2Go</string>
 	<key>CFBundleIconFile</key><string>pad2go</string>

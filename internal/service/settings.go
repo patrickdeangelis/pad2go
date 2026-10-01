@@ -3,7 +3,7 @@ package service
 import (
 	"maps"
 
-	"github.com/angelispatrick/pad2go/internal/config"
+	"github.com/patrickdeangelis/pad2go/internal/config"
 )
 
 // Settings is the part of the configuration the UI edits, in the UI's shape.

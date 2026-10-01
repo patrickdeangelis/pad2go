@@ -9,8 +9,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/angelispatrick/pad2go/internal/controller"
-	"github.com/angelispatrick/pad2go/internal/lifecycle"
+	"github.com/patrickdeangelis/pad2go/internal/controller"
+	"github.com/patrickdeangelis/pad2go/internal/lifecycle"
 )
 
 var errDisabled = errors.New("built without Bluetooth support (nobluetooth tag)")

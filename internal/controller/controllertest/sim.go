@@ -8,7 +8,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/angelispatrick/pad2go/internal/protocol"
+	"github.com/patrickdeangelis/pad2go/internal/protocol"
 )
 
 // Write is one recorded write to a characteristic.

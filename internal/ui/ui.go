@@ -20,8 +20,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/angelispatrick/pad2go/internal/app"
-	"github.com/angelispatrick/pad2go/internal/service"
+	"github.com/patrickdeangelis/pad2go/internal/app"
+	"github.com/patrickdeangelis/pad2go/internal/service"
 )
 
 //go:embed web
