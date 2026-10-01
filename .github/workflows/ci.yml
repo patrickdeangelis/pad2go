@@ -39,8 +39,10 @@ jobs:
         with:
           version: v2.14
 
+      # The race detector runs on Linux and macOS; on Windows it doubles the
+      # test time and the code it would cover is shared.
       - name: Test
-        run: go test -race ./...
+        run: go test ${{ runner.os != 'Windows' && '-race' || '' }} ./...
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
