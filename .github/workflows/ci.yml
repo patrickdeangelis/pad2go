@@ -3,14 +3,25 @@ on: [push, pull_request]
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - name: Linux window dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev
+          echo "PKG_CONFIG_PATH=$GITHUB_WORKSPACE/packaging/linux" >> "$GITHUB_ENV"
+      - name: Windows WebView2 header shim
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "CGO_CXXFLAGS=-I$(cygpath -m "$GITHUB_WORKSPACE")/packaging/windows/include" >> "$GITHUB_ENV"
       - run: go vet ./...
       - run: go test -race ./...
       - run: go build -o pad2go-${{ runner.os }} ./cmd/pad2go
