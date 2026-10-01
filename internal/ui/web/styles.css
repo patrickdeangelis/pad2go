@@ -330,6 +330,12 @@ input[type='range'], progress { accent-color: var(--accent); }
 .steps { display: flex; gap: 4px; list-style: none; padding: 0; margin: 0; width: 100%; }
 .steps li { flex: 1; font-size: 11px; color: var(--tertiary); padding-top: 6px; border-top: 3px solid color-mix(in srgb, var(--label) 12%, transparent); border-radius: 1px; }
 .steps .done { color: var(--secondary); border-color: var(--success); }
+.howto .row-label { gap: 6px; }
+.howto ol { margin: 2px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.5; color: var(--secondary); }
+.howto ul { margin: 2px 0 0; padding-left: 16px; list-style: disc; }
+.howto li { margin: 3px 0; }
+.howto strong { color: var(--label); font-weight: 600; }
+.howto.attention { box-shadow: inset 3px 0 0 var(--accent); }
 .steps .current { color: var(--label); border-color: var(--accent); font-weight: 600; }
 .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--label) 15%, transparent); border-top-color: var(--secondary); animation: spin .9s linear infinite; flex-shrink: 0; }
 .spinner.idle { animation: none; border-top-color: color-mix(in srgb, var(--label) 15%, transparent); }
@@ -353,6 +359,9 @@ input[type='range'], progress { accent-color: var(--accent); }
 .pad-key { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-size: 11px; font-weight: 600; color: var(--secondary); background: var(--control-bg, #fff); box-shadow: 0 .5px 1.5px rgba(0, 0, 0, .25); }
 .pad-key.wide { width: 40px; border-radius: 8px; }
 .pad-key.active { background: var(--accent); color: #fff; }
+.input-center { display: flex; gap: 6px; align-items: center; }
+.input-center .pad-key.wide { width: 44px; font-size: 10px; }
+.stick-field.active { box-shadow: inset 0 0 0 2px var(--accent); }
 .stick-field { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: var(--control-bg, #fff); box-shadow: inset 0 0 0 .5px rgba(0, 0, 0, .2); }
 .stick-marker { width: 20px; height: 20px; border-radius: 50%; background: var(--secondary); }
 .readings .row { min-height: 34px; padding: 6px 12px; }

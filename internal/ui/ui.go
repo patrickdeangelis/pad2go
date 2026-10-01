@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/patrickdeangelis/pad2go/internal/app"
+	"github.com/patrickdeangelis/pad2go/internal/protocol"
 	"github.com/patrickdeangelis/pad2go/internal/service"
 )
 
@@ -239,6 +240,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 // 0-255 and gyro in deg/s.
 type inputSample struct {
 	Buttons uint16     `json:"buttons"`
+	Pressed []string   `json:"pressed"` // physical buttons, canonical names
 	LX      float64    `json:"lx"`
 	LY      float64    `json:"ly"`
 	RX      float64    `json:"rx"`
@@ -282,7 +284,7 @@ func (s *Server) input(w http.ResponseWriter, r *http.Request) {
 			}
 			x := latest.Xbox
 			if send("input", inputSample{
-				Buttons: x.Buttons, LX: axis(x.LX), LY: axis(x.LY), RX: axis(x.RX), RY: axis(x.RY),
+				Buttons: x.Buttons, Pressed: protocol.ButtonNames(latest.Pressed), LX: axis(x.LX), LY: axis(x.LY), RX: axis(x.RX), RY: axis(x.RY),
 				LT: x.LeftTrigger, RT: x.RightTrigger, Analog: latest.AnalogTriggers, Gyro: latest.Gyro,
 			}) != nil {
 				return

@@ -113,6 +113,19 @@
 
   function renderDiscovery() {
     const d = snap.discovery;
+    // A controller bonded to the console needs SYNC: show how, once per failure.
+    if (d.bonded && !ui.bondedShown) ui.discoveryOpen = true;
+    ui.bondedShown = Boolean(d.bonded);
+    // Close the setup once a controller is ready, unless a lone Joy-Con is
+    // still waiting for its partner to join the same player.
+    if (d.step === 4 && ui.lastStep !== 4 && ui.discoveryOpen) {
+      clearTimeout(ui.closeTimer);
+      ui.closeTimer = setTimeout(() => {
+        const waitingPartner = snap.config.combine && snap.players.some(p => p.members.length === 1 && ['left', 'right'].includes(p.members[0].kind));
+        if (snap.discovery.step === 4 && !waitingPartner) { ui.discoveryOpen = false; render(); }
+      }, 1500);
+    }
+    ui.lastStep = d.step;
     el('discovery').hidden = !ui.discoveryOpen;
     el('discovery-steps').innerHTML = ['Procurando', 'Encontrado', 'Conectando', 'Pareando', 'Pronto'].map((name, index) => {
       const cls = index < d.step || (d.step === 4 && index === 4) ? 'done' : index === d.step ? 'current' : '';
@@ -121,6 +134,10 @@
     el('discovery-spinner').classList.toggle('idle', Boolean(snap.fault) || d.failure || d.foreign || d.step === 4 || d.step < 0);
     el('discovery-status').textContent = snap.fault ? 'Busca pausada: resolva o problema indicado acima.' : d.text || 'A busca é automática. Não é preciso escolher o controle.';
     el('foreign-action').hidden = !d.foreign || snap.config.foreign;
+    el('howto').classList.toggle('attention', Boolean(d.bonded));
+    el('howto-reconnect').textContent = snap.platform === 'macOS' && !snap.config.hostMac
+      ? 'No macOS o Pad2Go não lê o endereço Bluetooth do computador, então o pareamento não fica salvo: segure SYNC a cada conexão (ou informe o endereço em Ajustes → Conexão).'
+      : 'Depois do primeiro pareamento, basta apertar qualquer botão para reconectar.';
   }
 
   function renderSettings() {
@@ -173,10 +190,16 @@
   }
 
   // --- Input test -------------------------------------------------------------
-  const buttonIds = { up: 0x0001, down: 0x0002, left: 0x0004, right: 0x0008, l: 0x0100, r: 0x0200, a: 0x1000, b: 0x2000, x: 0x4000, y: 0x8000 };
+  const buttonIds = { up: 0x0001, down: 0x0002, left: 0x0004, right: 0x0008, start: 0x0010, back: 0x0020, l: 0x0100, r: 0x0200, guide: 0x0400, a: 0x1000, b: 0x2000, x: 0x4000, y: 0x8000 };
+  const physicalLabels = { MINUS: '−', PLUS: '+', HOME: 'Home', CAPT: 'Captura', C: 'C (Chat)', L_STK: 'L3', R_STK: 'R3', UP: '↑', DOWN: '↓', LEFT: '←', RIGHT: '→', SL_L: 'SL', SR_L: 'SR', SL_R: 'SL', SR_R: 'SR' };
+  const physicalOrder = ['A', 'B', 'X', 'Y', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'L', 'R', 'ZL', 'ZR', 'L_STK', 'R_STK', 'MINUS', 'PLUS', 'HOME', 'CAPT', 'C', 'SL_L', 'SR_L', 'SL_R', 'SR_R', 'GL', 'GR'];
   const number = (value, digits = 2) => value.toFixed(digits).replace('.', ',');
   function showInput(sample) {
     Object.entries(buttonIds).forEach(([id, bit]) => el(`pad-${id}`).classList.toggle('active', Boolean(sample.buttons & bit)));
+    el('stick-left').parentElement.classList.toggle('active', Boolean(sample.buttons & 0x0040));
+    el('stick-right').parentElement.classList.toggle('active', Boolean(sample.buttons & 0x0080));
+    const pressed = (sample.pressed || []).slice().sort((a, b) => (physicalOrder.indexOf(a) + 99) % 99 - (physicalOrder.indexOf(b) + 99) % 99);
+    el('pressed-values').value = pressed.length ? pressed.map(name => physicalLabels[name] || name.replace(/_/g, ' ')).join(' · ') : '—';
     el('stick-left').style.transform = `translate(${sample.lx * 14}px,${-sample.ly * 14}px)`;
     el('stick-right').style.transform = `translate(${sample.rx * 14}px,${-sample.ry * 14}px)`;
     el('left-values').value = `X ${number(sample.lx)} · Y ${number(sample.ly)}`;
@@ -191,7 +214,7 @@
   let inputNoteUntil = 0;
   // A short message (e.g. after Vibrar) that live input doesn't overwrite.
   function inputNote(text) { el('input-state').textContent = text; inputNoteUntil = Date.now() + 2500; }
-  function resetInput() { showInput({ buttons: 0, lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0, analog: false, gyro: [0, 0, 0] }); el('input-state').textContent = 'Aguardando entradas.'; }
+  function resetInput() { showInput({ buttons: 0, pressed: [], lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0, analog: false, gyro: [0, 0, 0] }); el('input-state').textContent = 'Aguardando entradas.'; }
   function stopStream() { inputStream?.close(); inputStream = null; }
   function closeTest() {
     stopStream();
@@ -255,7 +278,7 @@
   const help = {
     bluetooth: () => snap.platform === 'macOS' ? 'Na primeira execução o macOS pergunta se o Pad2Go pode usar o Bluetooth: clique em Permitir. Se você recusou, ative o Pad2Go em Ajustes do Sistema → Privacidade e Segurança → Bluetooth. Confira se o Bluetooth está ligado e clique em “Tentar novamente”.' : 'Ligue o Bluetooth nas configurações do computador e confirme que há um adaptador compatível com Bluetooth LE. Depois, clique em “Tentar novamente”.',
     output: () => snap.platform === 'macOS' ? 'O macOS não permite criar controles virtuais. Em Ajustes → Conexão → Saída, escolha “Automática” ou “Somente movimento” e reinicie as conexões; o movimento continua disponível para emuladores via DSU.' : snap.platform === 'Windows' ? 'Instale o <a href="https://github.com/nefarius/ViGEmBus" target="_blank" rel="noreferrer">ViGEmBus</a> e reinicie o Pad2Go. Se o jogo detectar entradas duplicadas, use o <a href="https://github.com/nefarius/HidHide" target="_blank" rel="noreferrer">HidHide</a> para ocultar o controle físico.' : 'Carregue o módulo com <code>sudo modprobe uinput</code>, confira se /dev/uinput existe e dê acesso ao seu usuário com uma regra udev.',
-    mac: 'Informe o endereço Bluetooth do computador em Ajustes → Conexão. Sem ele a conexão funciona, mas o pareamento para reconectar com um toque não é salvo.',
+    mac: () => 'Informe o endereço Bluetooth do computador em Ajustes → Conexão. Sem ele a conexão funciona, mas o pareamento para reconectar com um toque não é salvo.',
   };
   function showHelp(button) {
     const host = button.closest('.row, .banner');
@@ -284,6 +307,7 @@
     const button = event.target.closest('button'); if (!button || button.disabled) return;
     if (button.dataset.view) setView(button.dataset.view);
     else if (button.id === 'connect') { ui.discoveryOpen = true; render(); }
+    else if (button.id === 'show-howto') { ui.discoveryOpen = true; render(); el('howto').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
     else if (button.id === 'hide-discovery') { ui.discoveryOpen = false; render(); el('connect').focus(); }
     else if (button.id === 'accept-foreign') { draft.foreign = true; clearTimeout(saveTimer); try { snap = await api('/api/config', { method: 'PUT', body: draft }); await restart(); } catch (error) { announce(`Não foi possível salvar: ${error.message}`, true); } }
     else if (button.id === 'apply-config' || button.hasAttribute('data-retry')) await restart();

@@ -222,6 +222,7 @@ type member struct {
 	dev     Device
 	rumbler *rumbler
 	battery atomic.Int32 // percent, -1 until known
+	pressed uint32       // last raw buttons; guarded by slot.mu
 }
 
 // slot is one player slot: the player pad state, the OS virtual pad it
@@ -266,13 +267,18 @@ func (s *slot) onInput(m *member, in protocol.Input) {
 	a := s.app
 	s.mu.Lock()
 	f, ok := s.pad.Update(m.dev.Address(), in)
+	m.pressed = in.Buttons
 	if ok {
+		var pressed uint32
+		for _, x := range s.members {
+			pressed |= x.pressed
+		}
 		if err := s.out.Update(f.Xbox); err != nil {
 			a.log.Debug("virtual pad update failed", "err", err)
 		}
 		for w := range s.watchers {
 			select {
-			case w <- Sample{Xbox: f.Xbox, Gyro: f.Motion.Gyro, AnalogTriggers: in.AnalogTriggers}:
+			case w <- Sample{Xbox: f.Xbox, Pressed: pressed, Gyro: f.Motion.Gyro, AnalogTriggers: in.AnalogTriggers}:
 			default: // slow watcher: drop the sample
 			}
 		}
@@ -452,7 +458,10 @@ func (a *App) Players() []Player {
 
 // Sample is what one input report did to a player slot, for input tests.
 type Sample struct {
-	Xbox           mapping.XboxState
+	Xbox mapping.XboxState
+	// Pressed is the physical buttons held across the slot's controllers
+	// (protocol.Btn* bits), before remapping.
+	Pressed        uint32
 	Gyro           [3]float32 // deg/s of the reporting controller
 	AnalogTriggers bool
 }

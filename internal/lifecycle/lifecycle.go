@@ -92,6 +92,11 @@ func (m *Manager) emit(e Event) {
 // ErrDropped is returned when the link drops before the controller is attached.
 var ErrDropped = errors.New("controller disconnected before it was attached")
 
+// ErrBondedElsewhere marks a connection that failed while the controller was
+// advertising a bond to another host (typically the console): it only answers
+// that host until SYNC puts it in pairing mode.
+var ErrBondedElsewhere = errors.New("controller is bonded to another host; hold SYNC until the lights sweep to pair it here")
+
 // Run scans and connects until ctx is done. It always returns ctx.Err().
 func (m *Manager) Run(ctx context.Context) error {
 	if m.Log == nil {
@@ -181,7 +186,11 @@ type link struct {
 func (m *Manager) connect(ctx context.Context, a Advert, host uint64, hostKnown bool) error {
 	model := protocol.ControllerNames[a.Adv.ProductID]
 	m.emit(Event{Stage: Found, Addr: a.Addr, Model: model})
-	m.Log.Info("connecting", "addr", a.Addr, "model", model, "pairing", a.Adv.Pairing())
+	bonded := "none (sync mode)"
+	if !a.Adv.Pairing() {
+		bonded = FormatMAC(a.Adv.ReconnectMAC)
+	}
+	m.Log.Info("connecting", "addr", a.Addr, "model", model, "pairing", a.Adv.Pairing(), "bonded_to", bonded)
 	cctx, cancel := context.WithTimeout(ctx, m.ConnectTimeout)
 	defer cancel()
 
@@ -198,6 +207,10 @@ func (m *Manager) connect(ctx context.Context, a Advert, host uint64, hostKnown 
 		}
 	})
 	if err != nil {
+		if !a.Adv.Pairing() && (!hostKnown || a.Adv.ReconnectMAC != host) {
+			// A controller bonded elsewhere only answers that host.
+			return fmt.Errorf("%w: %w (bonded to %s)", err, ErrBondedElsewhere, bonded)
+		}
 		return err
 	}
 	m.emit(Event{Stage: Connecting, Addr: a.Addr, Model: model})

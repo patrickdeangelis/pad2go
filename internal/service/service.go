@@ -74,7 +74,10 @@ type Discovery struct {
 	Text    string `json:"text"`
 	Foreign bool   `json:"foreign"` // last controller was ignored: bonded to another PC
 	Failure bool   `json:"failure"`
-	at      time.Time
+	// Bonded: the last failure was a controller bonded to another host
+	// (usually the console); the UI shows how to put it in sync mode.
+	Bonded bool `json:"bonded"`
+	at     time.Time
 }
 
 // Event is pushed to subscribers.
@@ -283,7 +286,7 @@ func (s *Service) lifecycleEvent(e lifecycle.Event) {
 		set(4, text)
 		d.at = now
 	case lifecycle.Ignored:
-		*d = Discovery{Step: 1, Text: e.Model + " ignorado: pareado com outro PC.", Foreign: true, at: now}
+		*d = Discovery{Step: 1, Text: e.Model + " ignorado: está pareado com outro aparelho.", Foreign: true, at: now}
 	case lifecycle.Failed:
 		msg := "Falha ao conectar"
 		if e.Model != "" {
@@ -291,6 +294,10 @@ func (s *Service) lifecycleEvent(e lifecycle.Event) {
 		}
 		if errors.Is(e.Err, app.ErrFull) {
 			msg = "Todos os jogadores estão ocupados"
+		}
+		if errors.Is(e.Err, lifecycle.ErrBondedElsewhere) {
+			*d = Discovery{Step: 2, Text: e.Model + " está pareado com outro aparelho, provavelmente o Switch 2. Desligue o console e segure SYNC até as luzes correrem.", Failure: true, Bonded: true, at: now}
+			break
 		}
 		*d = Discovery{Step: 2, Text: msg + ". Aproxime o controle e pressione um botão ou segure SYNC.", Failure: true, at: now}
 	case lifecycle.Dropped:

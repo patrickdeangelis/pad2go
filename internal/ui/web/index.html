@@ -40,12 +40,29 @@
               <div class="row-control"><button id="hide-discovery" type="button" class="push">Fechar</button></div>
             </div>
             <div class="row"><ol id="discovery-steps" class="steps" aria-label="Etapas de conexão"></ol></div>
+            <div class="row howto" id="howto">
+              <div class="row-label">
+                <span>Como conectar</span>
+                <ol>
+                  <li>Desligue o Switch 2 ou ative o modo avião. Ligado e por perto, ele chama os controles de volta.</li>
+                  <li>Segure o botão <strong>SYNC</strong> até as luzes correrem de um lado para o outro.
+                    <ul>
+                      <li><strong>Joy-Con 2:</strong> botão redondo pequeno na face interna (o lado que encaixa no console), entre SL e SR. Faça em cada um.</li>
+                      <li><strong>Pro Controller 2 e controle GameCube:</strong> botão na parte de cima, perto da entrada USB-C.</li>
+                    </ul>
+                  </li>
+                  <li>O Pad2Go conecta sozinho. Com “Unir Joy-Cons” ligado, o esquerdo e o direito viram um só jogador.</li>
+                  <li id="howto-reconnect">Depois do primeiro pareamento, basta apertar qualquer botão para reconectar.</li>
+                </ol>
+                <small>Para voltar a usar no Switch 2, encaixe os Joy-Cons no console ou conecte o Pro Controller pelo cabo.</small>
+              </div>
+            </div>
             <div class="row" id="foreign-action" hidden><div class="row-label"><span>Controle pareado com outro PC</span><small>A preferência será salva e as conexões serão reiniciadas.</small></div><div class="row-control"><button id="accept-foreign" type="button" class="push">Aceitar mesmo assim</button></div></div>
           </div>
 
           <h2 class="group-title"><span>Jogadores</span><span id="player-count"></span></h2>
           <div id="device-list" class="group"></div>
-          <p class="group-footer">Segure SYNC em um controle novo. Um controle já pareado reconecta com um toque em qualquer botão.</p>
+          <p class="group-footer">Controle novo ou que estava no Switch 2? Segure SYNC até as luzes correrem. <button id="show-howto" type="button" class="link">Como conectar</button></p>
 
           <h2 class="group-title">Conexão</h2>
           <div class="group">
@@ -119,7 +136,7 @@
     <header class="sheet-header"><div><h2 id="test-title">Teste de entrada</h2><p>Aperte os botões no controle. Você vê o que é enviado aos jogos.</p></div></header>
     <div class="input-layout">
       <div class="input-pad" role="img" aria-label="Visualização das entradas recebidas">
-        <div class="input-triggers"><span id="pad-l" class="pad-key wide">LB</span><span id="pad-r" class="pad-key wide">RB</span></div>
+        <div class="input-triggers"><span id="pad-l" class="pad-key wide">LB</span><span class="input-center"><span id="pad-back" class="pad-key wide" title="Back (− e Captura)">Back</span><span id="pad-guide" class="pad-key" title="Guide (Home)">⌂</span><span id="pad-start" class="pad-key wide" title="Start (+)">Start</span></span><span id="pad-r" class="pad-key wide">RB</span></div>
         <div class="input-pad-body"><div class="pad-side"><div class="stick-field"><span class="stick-marker" id="stick-left"></span></div><div class="cross4"><span id="pad-up" class="pad-key">↑</span><span id="pad-left" class="pad-key">←</span><span id="pad-right" class="pad-key">→</span><span id="pad-down" class="pad-key">↓</span></div></div><div class="pad-side"><div class="cross4"><span id="pad-y" class="pad-key">Y</span><span id="pad-x" class="pad-key">X</span><span id="pad-b" class="pad-key">B</span><span id="pad-a" class="pad-key">A</span></div><div class="stick-field"><span class="stick-marker" id="stick-right"></span></div></div></div>
       </div>
       <div class="group readings">
@@ -128,6 +145,7 @@
         <div class="row"><div class="row-label"><span>Gatilho LT</span></div><div class="row-control meter"><progress id="trigger-l" max="100" value="0"></progress><output id="trigger-l-value" class="value">0%</output></div></div>
         <div class="row"><div class="row-label"><span>Gatilho RT</span></div><div class="row-control meter"><progress id="trigger-r" max="100" value="0"></progress><output id="trigger-r-value" class="value">0%</output></div></div>
         <div class="row"><div class="row-label"><span>Giroscópio (°/s)</span></div><output id="gyro-values" class="value">0,0 · 0,0 · 0,0</output></div>
+        <div class="row"><div class="row-label"><span>Botões no controle</span><small>O que você aperta, antes de virar Xbox</small></div><output id="pressed-values" class="value">—</output></div>
       </div>
     </div>
     <footer class="sheet-footer"><span id="input-state" class="secondary" role="status">Aguardando entradas.</span><button id="rumble" type="button" class="push">Vibrar</button><button id="close-test" type="button" class="push primary">Concluído</button></footer>
