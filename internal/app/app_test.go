@@ -345,12 +345,12 @@ func TestPlayersWatchRumbleDisconnect(t *testing.T) {
 	changes := 0
 	a.OnChange(func() { changes++ })
 
-	l.send(protocol.Input{BatteryVoltage: 3.75})
+	l.send(protocol.Input{BatteryVoltage: 3.41})
 	players := a.Players()
 	if len(players) != 2 || players[0].Number != 1 || len(players[0].Members) != 2 || players[1].Number != 2 {
 		t.Fatalf("players %+v", players)
 	}
-	if players[0].Members[0].Battery != 50 || players[0].Members[1].Battery != -1 {
+	if m := players[0].Members; m[0].Volts != 3.41 || m[0].Battery() != protocol.BatteryHigh || m[1].Battery() != protocol.BatteryUnknown {
 		t.Fatalf("batteries %+v", players[0].Members)
 	}
 

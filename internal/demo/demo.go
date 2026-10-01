@@ -45,9 +45,9 @@ type Radio struct {
 func NewRadio() *Radio {
 	r := &Radio{Reconnect: 5 * time.Second, visible: map[string]bool{}}
 	r.devices = []*device{
-		{addr: "D0:00:00:00:00:01", pid: protocol.JoyCon2LeftPID, voltage: 3.42, delay: 500 * time.Millisecond},
-		{addr: "D0:00:00:00:00:02", pid: protocol.JoyCon2RightPID, voltage: 3.95, delay: 3 * time.Second},
-		{addr: "D0:00:00:00:00:03", pid: protocol.ProController2PID, voltage: 4.05, paired: true, delay: 6 * time.Second},
+		{addr: "D0:00:00:00:00:01", pid: protocol.JoyCon2LeftPID, voltage: 3.08, delay: 500 * time.Millisecond},
+		{addr: "D0:00:00:00:00:02", pid: protocol.JoyCon2RightPID, voltage: 3.45, delay: 3 * time.Second},
+		{addr: "D0:00:00:00:00:03", pid: protocol.ProController2PID, voltage: 3.2, paired: true, delay: 6 * time.Second},
 		{addr: "D0:00:00:00:00:04", pid: protocol.NSOGameCubeControllerPID, voltage: 3.7, paired: true, delay: 9 * time.Second},
 	}
 	for _, d := range r.devices {

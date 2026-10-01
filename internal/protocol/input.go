@@ -305,8 +305,34 @@ func parseGameCube(data []byte, opt ParseOptions) (Report, error) {
 	return r, nil
 }
 
-// BatteryPercent estimates charge from pack voltage (3.3 V empty, 4.2 V full).
-func BatteryPercent(volts float64) int {
-	p := (volts - 3.3) / (4.2 - 3.3) * 100
-	return int(math.Max(0, math.Min(100, math.Round(p))))
+// BatteryBand is a coarse charge level. The controllers report only a pack
+// voltage, which doesn't map linearly to charge, so like the original this
+// shows three bands rather than a percentage.
+type BatteryBand int
+
+const (
+	BatteryUnknown BatteryBand = iota
+	BatteryLow
+	BatteryMedium
+	BatteryHigh
+)
+
+// BatteryBandOf classifies a reported voltage with the original's thresholds
+// (above 3.25 V high, above 3.125 V medium). Readings outside 2.5-5 V are
+// treated as unknown.
+func BatteryBandOf(volts float64) BatteryBand {
+	switch {
+	case math.IsNaN(volts) || volts < 2.5 || volts > 5:
+		return BatteryUnknown
+	case volts > 3.25:
+		return BatteryHigh
+	case volts > 3.125:
+		return BatteryMedium
+	default:
+		return BatteryLow
+	}
+}
+
+func (b BatteryBand) String() string {
+	return [...]string{"", "low", "medium", "high"}[b]
 }

@@ -306,3 +306,14 @@ func TestKind(t *testing.T) {
 		t.Fatal("deadzone families")
 	}
 }
+
+func TestBatteryBand(t *testing.T) {
+	for _, c := range []struct {
+		volts float64
+		want  BatteryBand
+	}{{3.51, BatteryHigh}, {3.41, BatteryHigh}, {3.2, BatteryMedium}, {3.125, BatteryLow}, {3.0, BatteryLow}, {0, BatteryUnknown}, {6, BatteryUnknown}} {
+		if got := BatteryBandOf(c.volts); got != c.want {
+			t.Errorf("BatteryBandOf(%v) = %v, want %v", c.volts, got, c.want)
+		}
+	}
+}

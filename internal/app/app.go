@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -135,7 +136,6 @@ func (a *App) AddDevice(ctx context.Context, d Device) error {
 		target = s
 	}
 	m := &member{dev: d, rumbler: newRumbler(d, a.log)}
-	m.battery.Store(-1)
 	target.mu.Lock()
 	err := target.pad.Join(d.Address(), kind, a.cfg.HoldMode(d.Address()) == config.HoldHorizontal)
 	if err == nil {
@@ -222,7 +222,7 @@ func (a *App) Close() {
 type member struct {
 	dev     Device
 	rumbler *rumbler
-	battery atomic.Int32 // percent, -1 until known
+	battery atomic.Int32 // millivolts, 0 until known
 	pressed uint32       // last raw buttons; guarded by slot.mu
 }
 
@@ -292,19 +292,18 @@ func (s *slot) onInput(m *member, in protocol.Input) {
 	}
 	s.mu.Unlock()
 	if m.dev.Kind() != protocol.KindGameCube { // the GameCube pad reports no battery
-		m.battery.Store(int32(protocol.BatteryPercent(in.BatteryVoltage)))
+		m.battery.Store(int32(math.Round(in.BatteryVoltage * 1000)))
 	}
 	if ok && a.dsu != nil {
 		a.publishMotion(dsuID, s.lowestBattery(), f)
 	}
 }
 
-// lowestBattery is the lowest known battery percent among the slot's
-// controllers, or -1.
-func (s *slot) lowestBattery() int {
-	low := -1
+// lowestBattery is the lowest battery band among the slot's controllers.
+func (s *slot) lowestBattery() protocol.BatteryBand {
+	low := protocol.BatteryUnknown
 	for _, m := range s.snapshot() {
-		if b := int(m.battery.Load()); b >= 0 && (low < 0 || b < low) {
+		if b := protocol.BatteryBandOf(float64(m.battery.Load()) / 1000); b != protocol.BatteryUnknown && (low == protocol.BatteryUnknown || b < low) {
 			low = b
 		}
 	}
@@ -314,7 +313,7 @@ func (s *slot) lowestBattery() int {
 // publishMotion sends the player's state to DSU clients: a Joy-Con pair as
 // one full pad (buttons, both sticks, the chosen side's motion), any other
 // controller as itself.
-func (a *App) publishMotion(id Device, battery int, f mapping.Frame) {
+func (a *App) publishMotion(id Device, battery protocol.BatteryBand, f mapping.Frame) {
 	model := byte(dsu.ModelDS4)
 	if !f.Pair && !id.Kind().ProLike() {
 		model = dsu.ModelJoyCon
@@ -452,11 +451,14 @@ type Player struct {
 
 // Member is one controller in a player slot.
 type Member struct {
-	Addr    string
-	Name    string
-	Kind    protocol.Kind
-	Battery int // percent; -1 when unknown
+	Addr  string
+	Name  string
+	Kind  protocol.Kind
+	Volts float64 // last reported battery voltage; 0 when unknown
 }
+
+// Battery is the member's battery band.
+func (m Member) Battery() protocol.BatteryBand { return protocol.BatteryBandOf(m.Volts) }
 
 // Players returns the occupied player slots in order.
 func (a *App) Players() []Player {
@@ -470,7 +472,7 @@ func (a *App) Players() []Player {
 		p := Player{Number: s.player}
 		for _, m := range s.snapshot() {
 			p.Members = append(p.Members, Member{
-				Addr: m.dev.Address(), Name: m.dev.Name(), Kind: m.dev.Kind(), Battery: int(m.battery.Load()),
+				Addr: m.dev.Address(), Name: m.dev.Name(), Kind: m.dev.Kind(), Volts: float64(m.battery.Load()) / 1000,
 			})
 		}
 		out = append(out, p)

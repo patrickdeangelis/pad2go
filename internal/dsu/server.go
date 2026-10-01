@@ -342,20 +342,16 @@ func YawScale(sensitivity int) float32 {
 	return 1 + float32(sensitivity-1)/12
 }
 
-// BatteryLevel maps a percentage to the DSU battery enum.
-func BatteryLevel(percent int) byte {
-	switch {
-	case percent < 0:
-		return 0x00 // not applicable / unknown
-	case percent <= 5:
-		return 0x01
-	case percent <= 10:
+// BatteryLevel maps a battery band to the DSU battery enum.
+func BatteryLevel(b protocol.BatteryBand) byte {
+	switch b {
+	case protocol.BatteryLow:
 		return 0x02
-	case percent <= 40:
+	case protocol.BatteryMedium:
 		return 0x03
-	case percent <= 80:
+	case protocol.BatteryHigh:
 		return 0x04
 	default:
-		return 0x05
+		return 0x00 // not applicable / unknown
 	}
 }

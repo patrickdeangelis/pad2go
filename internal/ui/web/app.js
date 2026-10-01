@@ -33,6 +33,7 @@
     check: '<path d="m5 12 4 4L19 6"/>',
     x: '<path d="m6 6 12 12M6 18 18 6"/>',
     battery: '<rect x="2" y="7" width="17" height="10" rx="2.5"/><path d="M22 10.5v3M5 10v4m3-4v4m3-4v4"/>',
+    'battery-medium': '<rect x="2" y="7" width="17" height="10" rx="2.5"/><path d="M22 10.5v3M5 10v4m3-4v4"/>',
     'battery-low': '<rect x="2" y="7" width="17" height="10" rx="2.5"/><path d="M22 10.5v3M5 10v4"/>',
     warn: '<path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4m0 3h.01"/>',
   };
@@ -78,7 +79,10 @@
   }
   const ledPatterns = [0, 1, 3, 7, 15, 9, 5, 13, 6]; // protocol.LEDPattern
   const leds = player => `<span class="leds" role="img" aria-label="LEDs do jogador ${player}">${[0, 1, 2, 3].map(bit => `<span class="${ledPatterns[player] & (1 << bit) ? 'lit' : ''}"></span>`).join('')}</span>`;
-  const lowBattery = member => member.battery >= 0 && member.battery <= 15;
+  const lowBattery = member => member.battery === 'low';
+  const batteryLabels = { high: 'Alta', medium: 'Média', low: 'Baixa' };
+  const batteryIcons = { high: 'battery', medium: 'battery-medium', low: 'battery-low' };
+  const volts = v => `${v.toFixed(2).replace('.', ',')} V`;
 
   let devicesKey = '';
   function renderDevices() {
@@ -89,21 +93,24 @@
     el('controllers-subtitle').textContent = players.length ? snap.output.motionOnly ? 'Enviando movimento aos emuladores.' : 'Prontos para o próximo jogo.' : 'Nenhum controle conectado.';
     if (ui.testing !== null && !players.some(p => p.player === ui.testing)) closeTest();
     if (ui.detail !== null && !players.some(p => p.player === ui.detail)) ui.detail = null;
-    const key = JSON.stringify([players, ui.detail, snap.config.layout, draft.hold, draft.holds]);
+    // Voltage jitters between snapshots: only the open details show it.
+    const shown = players.map(p => ({ ...p, members: p.members.map(m => ({ ...m, volts: ui.detail === p.player ? m.volts.toFixed(2) : 0 })) }));
+    const key = JSON.stringify([shown, ui.detail, snap.config.layout, draft.hold, draft.holds]);
     if (key === devicesKey) return;
     devicesKey = key;
     el('device-list').innerHTML = players.length ? players.map(slot => {
       const pair = slot.members.length === 2;
       const low = slot.members.some(lowBattery);
       const single = slot.members.length === 1 && ['left', 'right'].includes(slot.members[0].kind);
-      const batteries = slot.members.filter(m => m.battery >= 0).map(m => `<span class="battery ${lowBattery(m) ? 'low' : ''}">${icon(lowBattery(m) ? 'battery-low' : 'battery')}${pair ? (m.kind === 'left' ? 'L ' : 'R ') : ''}${m.battery}%</span>`).join('');
+      const batteries = slot.members.filter(m => m.battery).map(m => `<span class="battery ${lowBattery(m) ? 'low' : ''}" title="Bateria ${batteryLabels[m.battery].toLowerCase()}">${icon(batteryIcons[m.battery])}${pair ? (m.kind === 'left' ? 'L ' : 'R ') : ''}${batteryLabels[m.battery]}</span>`).join('');
       const open = ui.detail === slot.player;
       return `<div class="row device-row" data-player="${slot.player}">
           <div class="device-icon" aria-hidden="true"><div class="art">${art(slot.members)}</div></div>
           <div class="row-label"><span>Jogador ${slot.player} · ${escape(slot.name)}</span><small class="device-meta"><span class="status ${low ? 'warning' : 'on'}">${low ? 'Bateria baixa' : 'Conectado'}</span>${batteries}${leds(slot.player)}</small></div>
           <div class="row-control"><button type="button" class="push" data-test="${slot.player}">Testar</button><button type="button" class="info-button" data-detail="${slot.player}" aria-expanded="${open}" aria-label="Detalhes do jogador ${slot.player}" title="Detalhes">${icon('info')}</button></div>
         </div>${open ? `<div class="device-details">
-          <span>Bluetooth LE · ${slot.members.map(m => escape(m.addr)).join(' · ')}${slot.members.some(m => m.battery >= 0) ? ' · bateria estimada pela tensão' : ''}</span>
+          <span>Bluetooth LE · ${slot.members.map(m => escape(m.addr)).join(' · ')}</span>
+          ${slot.members.some(m => m.battery) ? `<span>Bateria estimada pela tensão: ${slot.members.filter(m => m.battery).map(m => `${pair ? (m.kind === 'left' ? 'L ' : 'R ') : ''}${volts(m.volts)}`).join(' · ')}</span>` : ''}
           ${single ? `<label class="detail-line">Posição deste Joy-Con<select data-device-hold="${escape(slot.members[0].addr)}"><option value="Vertical">Vertical</option><option value="Horizontal">Horizontal</option></select></label>` : ''}
           <button type="button" class="danger-link" data-disconnect="${slot.player}">Desconectar ${pair ? 'par' : 'controle'}</button>
         </div>` : ''}`;

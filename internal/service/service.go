@@ -434,10 +434,11 @@ type PlayerView struct {
 
 // MemberView is one controller.
 type MemberView struct {
-	Addr    string `json:"addr"`
-	Name    string `json:"name"`
-	Kind    string `json:"kind"`    // left, right, pro, gc
-	Battery int    `json:"battery"` // percent, -1 unknown
+	Addr    string  `json:"addr"`
+	Name    string  `json:"name"`
+	Kind    string  `json:"kind"`    // left, right, pro, gc
+	Battery string  `json:"battery"` // "high", "medium", "low" or "" when unknown
+	Volts   float64 `json:"volts"`   // last reported pack voltage, 0 when unknown
 }
 
 // DSUView is the motion server status.
@@ -508,7 +509,7 @@ func (s *Service) Snapshot() Snapshot {
 		for _, p := range s.app.Players() {
 			v := PlayerView{Player: p.Number}
 			for _, m := range p.Members {
-				v.Members = append(v.Members, MemberView{Addr: m.Addr, Name: m.Name, Kind: kindName(m.Kind), Battery: m.Battery})
+				v.Members = append(v.Members, MemberView{Addr: m.Addr, Name: m.Name, Kind: kindName(m.Kind), Battery: m.Battery().String(), Volts: m.Volts})
 			}
 			v.Name = p.Members[0].Name
 			if len(p.Members) == 2 {

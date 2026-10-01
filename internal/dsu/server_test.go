@@ -150,7 +150,7 @@ func TestYawScale(t *testing.T) {
 }
 
 func TestBatteryLevel(t *testing.T) {
-	if BatteryLevel(100) != 5 || BatteryLevel(3) != 1 || BatteryLevel(50) != 4 {
+	if BatteryLevel(protocol.BatteryHigh) != 4 || BatteryLevel(protocol.BatteryLow) != 2 || BatteryLevel(protocol.BatteryUnknown) != 0 {
 		t.Fatal("battery mapping")
 	}
 }
