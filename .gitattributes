@@ -1,0 +1,5 @@
+# LF everywhere, so Windows checkouts match gofmt and go mod tidy output.
+* text=auto eol=lf
+*.png binary
+*.icns binary
+*.ico binary

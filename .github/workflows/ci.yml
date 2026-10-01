@@ -1,7 +1,9 @@
 name: CI
 on:
   push:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'bench/python/**', 'bench/results/**']
   pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'bench/python/**', 'bench/results/**']
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -11,61 +13,42 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    name: Lint (${{ matrix.os }})
+  # One job per platform: setup (the slow part) runs once, then lint, test and
+  # build reuse its module and build caches. Each platform has its own BLE,
+  # virtual pad and window code, so all three run every step.
+  ci:
+    name: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        # Each platform has its own files (BLE, virtual pad, window chrome).
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
+
       - name: go.mod is tidy
-        shell: bash
+        if: runner.os == 'Linux'
         run: go mod tidy -diff
-      - run: go vet ./...
-      - uses: golangci/golangci-lint-action@v8
+      - name: Vet (default and optional build tags)
+        run: |
+          go vet ./...
+          go vet -tags nowebview,nobluetooth ./...
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
         with:
           version: v2.14
 
-  test:
-    name: Test (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: ./.github/actions/setup
-      - run: go test -race ./...
+      - name: Test
+        run: go test -race ./...
 
-  build:
-    name: Build (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: ./.github/actions/setup
-      - name: Build tags compile
-        shell: bash
-        run: |
-          go build -tags nowebview ./...
-          go build -tags nobluetooth ./...
       - name: Build (Linux)
         if: runner.os == 'Linux'
-        run: |
-          mkdir -p dist
-          go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_SHA::7}" -o dist/pad2go ./cmd/pad2go
+        run: go build -ldflags "-s -w -X main.version=${GITHUB_SHA::7}" -o dist/pad2go ./cmd/pad2go
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: bash
-        run: go build -trimpath -ldflags "-s -w -H windowsgui -X main.version=${GITHUB_SHA::7}" -o dist/pad2go.exe ./cmd/pad2go
+        run: go build -ldflags "-s -w -H windowsgui -X main.version=${GITHUB_SHA::7}" -o dist/pad2go.exe ./cmd/pad2go
       - name: Build (macOS app)
         if: runner.os == 'macOS'
         run: |
