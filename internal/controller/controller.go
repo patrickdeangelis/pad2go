@@ -168,6 +168,10 @@ func (c *Controller) Initialize(ctx context.Context, opt Options) error {
 
 	fails := 0
 	for _, cmd := range protocol.InitSequenceFor(opt.AdvertisedPID) {
+		// A dropped link cancels ctx; stop before writes that would block.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if _, err := c.command(ctx, cmd.Cmd, cmd.Sub, cmd.Data); err != nil {
 			fails++
 			c.log.Warn("init command failed", "cmd", fmt.Sprintf("%02x:%02x", cmd.Cmd, cmd.Sub), "err", err)

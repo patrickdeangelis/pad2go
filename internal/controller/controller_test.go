@@ -3,6 +3,7 @@ package controller
 import (
 	"bytes"
 	"context"
+	"errors"
 	"math"
 	"sync"
 	"testing"
@@ -96,6 +97,18 @@ func TestInitializeToleratesSomeFailures(t *testing.T) {
 	}
 	if err := New(sim, nil).Initialize(context.Background(), Options{}); err == nil {
 		t.Fatal("three consecutive failures should abort")
+	}
+}
+
+func TestInitializeStopsWhenLinkDrops(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	sim := controllertest.New("A", protocol.JoyCon2LeftPID)
+	if err := New(sim, nil).Initialize(ctx, Options{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if n := len(sim.Commands()); n != 0 {
+		t.Fatalf("%d commands sent after cancel", n)
 	}
 }
 
