@@ -153,6 +153,9 @@ func (m *Manager) Run(ctx context.Context) error {
 		if err := m.connect(ctx, a, host, hostKnown); err != nil {
 			m.emit(Event{Stage: Failed, Addr: a.Addr, Model: protocol.ControllerNames[a.Adv.ProductID], Err: err})
 			m.Log.Warn("connection failed; press a button or hold SYNC to retry", "addr", a.Addr, "err", err)
+			if errors.Is(err, ErrDropped) && !errors.Is(err, ErrBondedElsewhere) {
+				m.Log.Warn("if the controller is plugged in over USB, unplug the cable: while wired it drops the Bluetooth link", "addr", a.Addr)
+			}
 		}
 	}
 	return ctx.Err()

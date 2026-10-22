@@ -299,6 +299,10 @@ func (s *Service) lifecycleEvent(e lifecycle.Event) {
 			*d = Discovery{Step: 2, Text: e.Model + " está pareado com outro aparelho, provavelmente o Switch 2. Desligue o console e segure SYNC até as luzes correrem.", Failure: true, Bonded: true, at: now}
 			break
 		}
+		if errors.Is(e.Err, lifecycle.ErrDropped) {
+			*d = Discovery{Step: 2, Text: msg + ": o controle desconectou no meio da conexão. Se ele estiver ligado por cabo USB, desconecte o cabo e segure SYNC de novo.", Failure: true, at: now}
+			break
+		}
 		*d = Discovery{Step: 2, Text: msg + ". Aproxime o controle e pressione um botão ou segure SYNC.", Failure: true, at: now}
 	case lifecycle.Dropped:
 		// Disconnect toasts come from the app's player changes.
