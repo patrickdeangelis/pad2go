@@ -1,4 +1,4 @@
-//go:build (windows || linux) && !nobluetooth
+//go:build linux && !nobluetooth
 
 package ble
 

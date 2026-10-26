@@ -13,7 +13,7 @@ linters:
         - (io.Closer).Close
         - (net.Conn).Close
         - (*net.UDPConn).Close
-        # ViGEm's void functions: Call's error is GetLastError noise.
+        # Win32 calls checked by return value: Call's error is GetLastError noise.
         - (*golang.org/x/sys/windows.LazyProc).Call
   exclusions:
     presets:
