@@ -45,10 +45,14 @@ jobs:
         run: |
           VERSION="${TAG#v}" packaging/build-windows.sh "$PWD/dist"
           (cd dist && zip -9 "../pad2go-$TAG-windows-amd64.zip" pad2go.exe)
+      - name: Build installer (bundles ViGEmBus)
+        run: VERSION="${TAG#v}" packaging/build-windows-installer.sh dist/pad2go.exe "pad2go-$TAG-windows-amd64-setup.exe"
       - uses: actions/upload-artifact@v5
         with:
           name: windows
-          path: pad2go-*.zip
+          path: |
+            pad2go-*.zip
+            pad2go-*-setup.exe
 
   linux:
     strategy:
