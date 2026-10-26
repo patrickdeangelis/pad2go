@@ -47,8 +47,11 @@ The window uses the system WebView through cgo:
 - **Windows:** WebView2, which is preinstalled on Windows 10/11.
   `packaging/build-windows.sh` cross-compiles `pad2go.exe` with MinGW-w64 in
   Docker: GUI subsystem (no console), WebView2 loader and C++ runtime linked
-  in, only Windows system DLLs imported. `packaging/windows/include` supplies
-  the `EventToken.h` that MinGW lacks.
+  in, only Windows system DLLs imported. The ViGEm client SDK is compiled in
+  too (`internal/virtualpad/vigemclient`), so no `ViGEmClient.dll` ships.
+  `packaging/windows/include` supplies the `EventToken.h` that MinGW lacks.
+  `packaging/build-windows-installer.sh` wraps it in an NSIS installer that
+  bundles the ViGEmBus driver.
 - **Linux:** GTK 3 and WebKitGTK. On Debian 12 install `libwebkit2gtk-4.0-dev`.
   Newer distros (Debian 13, Ubuntu 24.04+) only ship 4.1: install
   `libwebkit2gtk-4.1-dev` and build with `PKG_CONFIG_PATH=$PWD/packaging/linux`,
@@ -62,13 +65,23 @@ follows the system.
 
 Publishing a GitHub release runs `.github/workflows/release.yml`, which
 attaches a universal `Pad2Go.app` disk image (`packaging/build-macos-dmg.sh`),
-`pad2go.exe` (zip), Linux amd64/arm64 tarballs and `SHA256SUMS` to the release.
+the Windows installer and `pad2go.exe` (zip), Linux amd64/arm64 tarballs and
+`SHA256SUMS` to the release.
 
 ### Windows
 
-1. Install the [ViGEmBus](https://github.com/nefarius/ViGEmBus) driver.
-2. Put `ViGEmClient.dll` (x64) next to `pad2go.exe`.
-3. Hide the physical controller from games with HidHide if you see doubled input.
+Run `pad2go-<version>-windows-amd64-setup.exe`. It installs Pad2Go and, if
+no working ViGEmBus is found (`pad2go check`), the bundled
+[ViGEmBus](https://github.com/nefarius/ViGEmBus) 1.22.0 driver. Uninstalling
+Pad2Go leaves ViGEmBus in place for other apps.
+
+With the standalone `pad2go.exe` (zip), install ViGEmBus yourself. The
+"Virtual Gamepad Emulation Bus G2" (Nefarius VirtualPad, installed by apps
+such as DSX) is a different driver and does not replace it. Without ViGEmBus,
+controllers still connect, for the input test and DSU motion, but games don't
+see an Xbox controller.
+
+Hide the physical controller from games with HidHide if you see doubled input.
 
 ### Linux
 
@@ -170,7 +183,8 @@ go test -race ./...
 Protocol encodings are checked against golden values produced by the original
 Python code. The controller handshake is tested against a simulated controller,
 and the DSU server over real UDP. `S2C_UINPUT_IT=1` enables an end-to-end uinput
-test (needs root and `/dev/uinput`).
+test (needs root and `/dev/uinput`), and `S2C_VIGEM_IT=1` one for ViGEmBus that
+reads the pad back through XInput (needs the driver).
 
 Layout:
 

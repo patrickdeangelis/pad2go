@@ -38,6 +38,7 @@ Commands:
   run       connect controllers and open the Pad2Go window (default)
   scan      list nearby Switch 2 controllers without connecting
   init      write a starter config file
+  check     exit 0 if the virtual gamepad driver (ViGEmBus, uinput) works
   version   print the version
 
 Flags:
@@ -66,11 +67,14 @@ func main() {
 		level = slog.LevelDebug
 	}
 	// Launched from Finder/Explorer there is no console: also log to a file
-	// next to the config.
+	// next to the config. Only the app writes it, so a command (the installer
+	// runs "check") doesn't wipe the last session's log.
 	var out io.Writer = os.Stderr
-	if f, err := os.OpenFile(filepath.Join(filepath.Dir(cfgPath), "pad2go.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644); err == nil {
-		defer f.Close()
-		out = io.MultiWriter(f, os.Stderr) // file first: a GUI build may have no stderr
+	if cmd := fs.Arg(0); cmd == "" || cmd == "run" {
+		if f, err := os.OpenFile(filepath.Join(filepath.Dir(cfgPath), "pad2go.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644); err == nil {
+			defer f.Close()
+			out = io.MultiWriter(f, os.Stderr) // file first: a GUI build may have no stderr
+		}
 	}
 	log := slog.New(slog.NewTextHandler(out, &slog.HandlerOptions{Level: level}))
 
@@ -84,6 +88,8 @@ func main() {
 		err = scan(ctx)
 	case "init":
 		err = writeConfig(cfgPath)
+	case "check":
+		err = checkOutput()
 	case "version":
 		fmt.Println("pad2go", version)
 	default:
@@ -116,6 +122,18 @@ func configPath(flagValue string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "config.yaml"), nil
+}
+
+// checkOutput fails unless every virtual gamepad prerequisite holds. The
+// Windows installer runs it to decide whether to install ViGEmBus.
+func checkOutput() error {
+	for _, c := range virtualpad.Diagnose() {
+		fmt.Printf("%s: %s\n", c.Name, c.Detail)
+		if !c.OK {
+			return fmt.Errorf("%s: %s", c.Name, c.Detail)
+		}
+	}
+	return nil
 }
 
 func writeConfig(path string) error {
