@@ -1,41 +1,31 @@
-//go:build windows
+//go:build windows && cgo
 
 package virtualpad
 
+// The ViGEm client SDK (vigemclient_windows.cpp, MIT) is compiled in, so no
+// ViGEmClient.dll is needed; only the ViGEmBus driver must be installed.
+
+/*
+#cgo CXXFLAGS: -I${SRCDIR}/vigemclient -I${SRCDIR}/vigemclient/include -w
+#cgo CFLAGS: -I${SRCDIR}/vigemclient/include
+#cgo LDFLAGS: -lsetupapi
+#include <windows.h>
+#include "ViGEm/Client.h"
+*/
+import "C"
+
 import (
-	"encoding/binary"
 	"fmt"
-	"runtime"
 	"sync"
 	"syscall"
 	"unsafe"
-
-	"golang.org/x/sys/windows"
 
 	"github.com/patrickdeangelis/pad2go/internal/mapping"
 )
 
 const platformName = "vigem"
 
-// ViGEmClient.dll must sit next to the executable or on PATH. It ships with
-// ViGEmBus-based tools (e.g. the vgamepad Python package) and can be built
-// from https://github.com/nefarius/ViGEmClient.
-var (
-	vigemDLL           = windows.NewLazyDLL("ViGEmClient.dll")
-	procAlloc          = vigemDLL.NewProc("vigem_alloc")
-	procFree           = vigemDLL.NewProc("vigem_free")
-	procConnect        = vigemDLL.NewProc("vigem_connect")
-	procDisconnect     = vigemDLL.NewProc("vigem_disconnect")
-	procX360Alloc      = vigemDLL.NewProc("vigem_target_x360_alloc")
-	procTargetAdd      = vigemDLL.NewProc("vigem_target_add")
-	procTargetRemove   = vigemDLL.NewProc("vigem_target_remove")
-	procTargetFree     = vigemDLL.NewProc("vigem_target_free")
-	procX360Update     = vigemDLL.NewProc("vigem_target_x360_update")
-	procX360Register   = vigemDLL.NewProc("vigem_target_x360_register_notification")
-	procX360Unregister = vigemDLL.NewProc("vigem_target_x360_unregister_notification")
-)
-
-const vigemErrorNone = 0x20000000
+const vigemErrorNone = C.VIGEM_ERROR_NONE
 
 var (
 	callbackOnce sync.Once
@@ -57,20 +47,17 @@ func x360Notification(client, target, large, small, led, user uintptr) uintptr {
 }
 
 type vigem struct {
-	client uintptr
+	client C.PVIGEM_CLIENT
 }
 
 func openPlatform() (Backend, error) {
-	if err := vigemDLL.Load(); err != nil {
-		return nil, fmt.Errorf("load ViGEmClient.dll: %w", err)
-	}
-	client, _, _ := procAlloc.Call()
-	if client == 0 {
+	client := C.vigem_alloc()
+	if client == nil {
 		return nil, fmt.Errorf("vigem_alloc failed")
 	}
-	if r, _, _ := procConnect.Call(client); r != vigemErrorNone {
-		procFree.Call(client)
-		return nil, fmt.Errorf("vigem_connect: 0x%08x (is the ViGEmBus driver installed?)", r)
+	if r := C.vigem_connect(client); r != vigemErrorNone {
+		C.vigem_free(client)
+		return nil, fmt.Errorf("vigem_connect: 0x%08x (is the ViGEmBus driver installed?)", uint32(r))
 	}
 	callbackOnce.Do(func() { callbackPtr = syscall.NewCallback(x360Notification) })
 	return &vigem{client: client}, nil
@@ -79,28 +66,29 @@ func openPlatform() (Backend, error) {
 func (v *vigem) Name() string { return "ViGEmBus (Xbox 360)" }
 
 func (v *vigem) Close() error {
-	procDisconnect.Call(v.client)
-	procFree.Call(v.client)
+	C.vigem_disconnect(v.client)
+	C.vigem_free(v.client)
 	return nil
 }
 
 func (v *vigem) NewPad(onRumble RumbleFunc) (Pad, error) {
-	target, _, _ := procX360Alloc.Call()
-	if target == 0 {
+	target := C.vigem_target_x360_alloc()
+	if target == nil {
 		return nil, fmt.Errorf("vigem_target_x360_alloc failed")
 	}
-	if r, _, _ := procTargetAdd.Call(v.client, target); r != vigemErrorNone {
-		procTargetFree.Call(target)
-		return nil, fmt.Errorf("vigem_target_add: 0x%08x", r)
+	if r := C.vigem_target_add(v.client, target); r != vigemErrorNone {
+		C.vigem_target_free(target)
+		return nil, fmt.Errorf("vigem_target_add: 0x%08x", uint32(r))
 	}
 	p := &vigemPad{client: v.client, target: target}
 	if onRumble != nil {
 		targetsMu.Lock()
-		targets[target] = onRumble
+		targets[uintptr(unsafe.Pointer(target))] = onRumble
 		targetsMu.Unlock()
-		if r, _, _ := procX360Register.Call(v.client, target, callbackPtr, 0); r != vigemErrorNone {
+		cb := *(*C.PFN_VIGEM_X360_NOTIFICATION)(unsafe.Pointer(&callbackPtr))
+		if r := C.vigem_target_x360_register_notification(v.client, target, cb, nil); r != vigemErrorNone {
 			targetsMu.Lock()
-			delete(targets, target)
+			delete(targets, uintptr(unsafe.Pointer(target)))
 			targetsMu.Unlock()
 		} else {
 			p.registered = true
@@ -110,73 +98,53 @@ func (v *vigem) NewPad(onRumble RumbleFunc) (Pad, error) {
 }
 
 type vigemPad struct {
-	client, target uintptr
-	registered     bool
-}
-
-// xusbReport mirrors XUSB_REPORT (12 bytes).
-type xusbReport struct {
-	Buttons      uint16
-	LeftTrigger  uint8
-	RightTrigger uint8
-	LX, LY       int16
-	RX, RY       int16
+	client     C.PVIGEM_CLIENT
+	target     C.PVIGEM_TARGET
+	registered bool
 }
 
 func (p *vigemPad) Update(s mapping.XboxState) error {
-	rep := xusbReport{s.Buttons, s.LeftTrigger, s.RightTrigger, s.LX, s.LY, s.RX, s.RY}
-	var r uintptr
-	if runtime.GOARCH == "arm64" {
-		// AArch64 passes a 12-byte struct by value in two registers.
-		var b [16]byte
-		binary.LittleEndian.PutUint16(b[0:], rep.Buttons)
-		b[2], b[3] = rep.LeftTrigger, rep.RightTrigger
-		binary.LittleEndian.PutUint16(b[4:], uint16(rep.LX))
-		binary.LittleEndian.PutUint16(b[6:], uint16(rep.LY))
-		binary.LittleEndian.PutUint16(b[8:], uint16(rep.RX))
-		binary.LittleEndian.PutUint16(b[10:], uint16(rep.RY))
-		r, _, _ = procX360Update.Call(p.client, p.target,
-			uintptr(binary.LittleEndian.Uint64(b[0:])), uintptr(binary.LittleEndian.Uint64(b[8:])))
-	} else {
-		// x64 passes structs larger than 8 bytes by reference.
-		r, _, _ = procX360Update.Call(p.client, p.target, uintptr(unsafe.Pointer(&rep)))
+	rep := C.XUSB_REPORT{
+		wButtons: C.USHORT(s.Buttons), bLeftTrigger: C.BYTE(s.LeftTrigger), bRightTrigger: C.BYTE(s.RightTrigger),
+		sThumbLX: C.SHORT(s.LX), sThumbLY: C.SHORT(s.LY), sThumbRX: C.SHORT(s.RX), sThumbRY: C.SHORT(s.RY),
 	}
-	if r != vigemErrorNone {
-		return fmt.Errorf("vigem_target_x360_update: 0x%08x", r)
+	if r := C.vigem_target_x360_update(p.client, p.target, rep); r != vigemErrorNone {
+		return fmt.Errorf("vigem_target_x360_update: 0x%08x", uint32(r))
 	}
 	return nil
 }
 
 func (p *vigemPad) Close() error {
 	if p.registered {
-		procX360Unregister.Call(p.target)
+		C.vigem_target_x360_unregister_notification(p.target)
 		targetsMu.Lock()
-		delete(targets, p.target)
+		delete(targets, uintptr(unsafe.Pointer(p.target)))
 		targetsMu.Unlock()
 	}
-	procTargetRemove.Call(p.client, p.target)
-	procTargetFree.Call(p.target)
+	C.vigem_target_remove(p.client, p.target)
+	C.vigem_target_free(p.target)
 	return nil
 }
 
+// busInstalled reports whether a ViGEmBus device answers. The service alone
+// is not enough: the bus device node must exist.
+func busInstalled() bool {
+	client := C.vigem_alloc()
+	if client == nil {
+		return false
+	}
+	defer C.vigem_free(client)
+	if C.vigem_connect(client) != vigemErrorNone {
+		return false
+	}
+	C.vigem_disconnect(client)
+	return true
+}
+
 func diagnose() []Check {
-	dll := Check{Name: "ViGEmClient.dll", OK: true, Detail: "encontrado", Help: "output"}
 	bus := Check{Name: "ViGEmBus", OK: true, Detail: "instalado", Help: "output"}
-	if err := vigemDLL.Load(); err != nil {
-		dll.OK, dll.Detail = false, "não encontrado"
-		bus.OK, bus.Detail = false, "não verificado (requer ViGEmClient.dll)"
-		return []Check{bus, dll}
-	}
-	client, _, _ := procAlloc.Call()
-	if client == 0 {
-		bus.OK, bus.Detail = false, "falha ao inicializar"
-		return []Check{bus, dll}
-	}
-	defer procFree.Call(client)
-	if r, _, _ := procConnect.Call(client); r != vigemErrorNone {
+	if !busInstalled() {
 		bus.OK, bus.Detail = false, "não instalado"
-	} else {
-		procDisconnect.Call(client)
 	}
-	return []Check{bus, dll}
+	return []Check{bus}
 }
