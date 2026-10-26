@@ -179,6 +179,11 @@ func TestFaults(t *testing.T) {
 		OpenBackend: func(string) (virtualpad.Backend, error) { return nil, errors.New("ViGEmBus not installed") },
 	})
 	eventually(t, "output fault", func() bool { f := s.Snapshot().Fault; return f != nil && f.Kind == "output" })
+	// Without virtual gamepads, controllers still connect (for motion).
+	eventually(t, "player 1 without output", func() bool { return len(s.Snapshot().Players) == 1 })
+	if snap := s.Snapshot(); snap.Fault == nil || snap.Fault.Kind != "output" || !snap.Output.MotionOnly || snap.Bluetooth != "on" {
+		t.Fatalf("snapshot %+v", snap)
+	}
 
 	s = start(t, Options{Radio: func() (lifecycle.Radio, error) { return nil, errors.New("adapter off") }})
 	eventually(t, "bluetooth fault", func() bool { f := s.Snapshot().Fault; return f != nil && f.Kind == "bluetooth" })

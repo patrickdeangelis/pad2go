@@ -138,8 +138,10 @@
       const cls = index < d.step || (d.step === 4 && index === 4) ? 'done' : index === d.step ? 'current' : '';
       return `<li class="${cls}" ${index === d.step ? 'aria-current="step"' : ''}>${name}</li>`;
     }).join('');
-    el('discovery-spinner').classList.toggle('idle', Boolean(snap.fault) || d.failure || d.foreign || d.step === 4 || d.step < 0);
-    el('discovery-status').textContent = snap.fault ? 'Busca pausada: resolva o problema indicado acima.' : d.text || 'A busca é automática. Não é preciso escolher o controle.';
+    // An output fault runs motion-only: the search goes on.
+    const blocking = snap.fault && snap.fault.kind !== 'output';
+    el('discovery-spinner').classList.toggle('idle', Boolean(blocking) || d.failure || d.foreign || d.step === 4 || d.step < 0);
+    el('discovery-status').textContent = blocking ? 'Busca pausada: resolva o problema indicado acima.' : d.text || 'A busca é automática. Não é preciso escolher o controle.';
     el('foreign-action').hidden = !d.foreign || snap.config.foreign;
     el('howto').classList.toggle('attention', Boolean(d.bonded));
     el('howto-reconnect').textContent = snap.platform === 'macOS' && !snap.config.hostMac
@@ -186,11 +188,11 @@
     const fault = snap.fault;
     el('system-alert').hidden = !fault;
     if (fault) {
-      const title = fault.kind === 'bluetooth' ? 'O Bluetooth não está disponível' : fault.kind === 'output' ? 'Não foi possível iniciar a saída de controle virtual' : 'Problema na configuração';
-      const reason = fault.kind === 'bluetooth' ? mac ? 'O macOS ainda não permitiu que o Pad2Go use o Bluetooth, ou o Bluetooth está desligado.' : 'Ligue o Bluetooth e confira se há um adaptador compatível com Bluetooth LE.' : fault.kind === 'output' ? snap.platform === 'Windows' ? 'Confira se o driver ViGEmBus está instalado.' : mac ? 'No macOS não há controle virtual: escolha “Automática” ou “Somente movimento” em Ajustes → Conexão → Saída.' : 'Confira o acesso a /dev/uinput.' : '';
+      const title = fault.kind === 'bluetooth' ? 'O Bluetooth não está disponível' : fault.kind === 'output' ? 'Sem controle Xbox virtual: os jogos não veem os controles' : 'Problema na configuração';
+      const reason = fault.kind === 'bluetooth' ? mac ? 'O macOS ainda não permitiu que o Pad2Go use o Bluetooth, ou o Bluetooth está desligado.' : 'Ligue o Bluetooth e confira se há um adaptador compatível com Bluetooth LE.' : fault.kind === 'output' ? snap.platform === 'Windows' ? 'Os controles conectam e podem ser testados, mas falta o driver ViGEmBus. Instale-o e tente novamente.' : mac ? 'No macOS não há controle virtual: escolha “Automática” ou “Somente movimento” em Ajustes → Conexão → Saída.' : 'Confira o acesso a /dev/uinput.' : '';
       el('system-alert').innerHTML = `<strong>${title}</strong><span>${reason} <span class="technical">(${escape(fault.message)})</span></span><div class="banner-actions"><button type="button" class="push" data-retry>${snap.restarting ? 'Tentando…' : 'Tentar novamente'}</button><button type="button" class="link" data-help="${fault.kind === 'bluetooth' ? 'bluetooth' : 'output'}">Como resolver</button></div>`;
     }
-    el('connect').disabled = Boolean(fault);
+    el('connect').disabled = Boolean(fault) && fault.kind !== 'output';
     const busy = snap.discovery.step >= 1 && snap.discovery.step < 4 && !snap.discovery.failure && !snap.discovery.foreign;
     el('sidebar-status').textContent = fault ? 'Ação necessária' : snap.restarting ? 'Reiniciando…' : busy ? 'Conectando…' : snap.players.length ? `${snap.players.length} ${snap.players.length === 1 ? 'jogador' : 'jogadores'}` : 'Procurando controles';
     renderDevices(); renderDiscovery(); icons();
@@ -284,7 +286,7 @@
   // --- Diagnostics ------------------------------------------------------------------
   const help = {
     bluetooth: () => snap.platform === 'macOS' ? 'Na primeira execução o macOS pergunta se o Pad2Go pode usar o Bluetooth: clique em Permitir. Se você recusou, ative o Pad2Go em Ajustes do Sistema → Privacidade e Segurança → Bluetooth. Confira se o Bluetooth está ligado e clique em “Tentar novamente”.' : 'Ligue o Bluetooth nas configurações do computador e confirme que há um adaptador compatível com Bluetooth LE. Depois, clique em “Tentar novamente”.',
-    output: () => snap.platform === 'macOS' ? 'O macOS não permite criar controles virtuais. Em Ajustes → Conexão → Saída, escolha “Automática” ou “Somente movimento” e reinicie as conexões; o movimento continua disponível para emuladores via DSU.' : snap.platform === 'Windows' ? 'Instale o <a href="https://github.com/nefarius/ViGEmBus" target="_blank" rel="noreferrer">ViGEmBus</a> e reinicie o Pad2Go. Se o jogo detectar entradas duplicadas, use o <a href="https://github.com/nefarius/HidHide" target="_blank" rel="noreferrer">HidHide</a> para ocultar o controle físico.' : 'Carregue o módulo com <code>sudo modprobe uinput</code>, confira se /dev/uinput existe e dê acesso ao seu usuário com uma regra udev.',
+    output: () => snap.platform === 'macOS' ? 'O macOS não permite criar controles virtuais. Em Ajustes → Conexão → Saída, escolha “Automática” ou “Somente movimento” e reinicie as conexões; o movimento continua disponível para emuladores via DSU.' : snap.platform === 'Windows' ? 'O instalador do Pad2Go já instala o ViGEmBus. Se você usou o pad2go.exe avulso, instale o <a href="https://github.com/nefarius/ViGEmBus/releases/latest" target="_blank" rel="noreferrer">ViGEmBus 1.22</a> e clique em Tentar novamente. O “Virtual Gamepad Emulation Bus G2” (VirtualPad, instalado por apps como o DSX) é outro driver e não substitui o ViGEmBus. Se o jogo detectar entradas duplicadas, use o <a href="https://github.com/nefarius/HidHide" target="_blank" rel="noreferrer">HidHide</a> para ocultar o controle físico.' : 'Carregue o módulo com <code>sudo modprobe uinput</code>, confira se /dev/uinput existe e dê acesso ao seu usuário com uma regra udev.',
     mac: () => 'Informe o endereço Bluetooth do computador em Ajustes → Conexão. Sem ele a conexão funciona, mas o pareamento para reconectar com um toque não é salvo.',
   };
   function showHelp(button) {

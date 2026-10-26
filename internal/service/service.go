@@ -173,11 +173,11 @@ func (s *Service) runOnce(ctx context.Context, cfg *config.Config) {
 
 	backend, err := s.opt.OpenBackend(cfg.Output)
 	if err != nil {
-		s.log.Error("virtual gamepad output unavailable", "err", err)
+		// Keep going motion-only: controllers still connect, the UI can test
+		// them and DSU still works while the driver is fixed.
+		s.log.Error("virtual gamepad output unavailable; running motion-only", "err", err)
 		s.setFault(&Fault{Kind: "output", Message: err.Error()})
-		s.started()
-		<-ctx.Done()
-		return
+		backend = virtualpad.Null{}
 	}
 	defer backend.Close()
 
