@@ -83,6 +83,20 @@ see an Xbox controller.
 
 Hide the physical controller from games with HidHide if you see doubled input.
 
+**Windows Defender false positive.** The executables are not code-signed yet,
+and Defender's machine-learning heuristics may flag a build of `pad2go.exe`
+as `Trojan:Win32/Bearfoos.A!ml` and quarantine it, sometimes right after
+install. This is a false positive: the detection varies from build to build
+(1.0.0 is not flagged), and the source and release workflow are in this
+repository. Until the binaries are signed and the build is cleared by
+Microsoft, you can:
+
+- check the download against `SHA256SUMS` from the release;
+- restore it from Windows Security → Protection history, or add an exclusion
+  for `C:\Program Files\Pad2Go` only (Windows Security → Virus & threat
+  protection → Manage settings → Exclusions);
+- report the false positive at <https://www.microsoft.com/wdsi/filesubmission>.
+
 ### Linux
 
 Requires BlueZ and write access to `/dev/uinput`:
