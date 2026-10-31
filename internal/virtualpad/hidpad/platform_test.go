@@ -7,7 +7,9 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -116,6 +118,20 @@ func TestUHIDCodec(t *testing.T) {
 	typ, payload = lastUHIDEvent(t, transport.written)
 	if typ != uhidSetReportReply || binary.LittleEndian.Uint32(payload[0:4]) != 8 || binary.LittleEndian.Uint16(payload[4:6]) != 5 {
 		t.Fatalf("bad set report reply: type %d payload %x", typ, payload[:6])
+	}
+	if err := codec.destroy(); err != nil {
+		t.Fatal(err)
+	}
+	typ, _ = lastUHIDEvent(t, transport.written)
+	if typ != uhidDestroy {
+		t.Fatalf("destroy type %d, want %d", typ, uhidDestroy)
+	}
+
+	readTransport := &captureTransport{reader: bytes.NewBuffer(testUHIDEvent(uhidOutput, nil))}
+	readCodec := &uhidCodec{rw: readTransport}
+	typ, payload, readErr := readCodec.read()
+	if readErr != nil || typ != uhidOutput || len(payload) != uhidEventSize-4 {
+		t.Fatalf("read event: type %d len %d err %v", typ, len(payload), readErr)
 	}
 
 	output := make([]byte, 4099)
@@ -230,11 +246,13 @@ func TestUHIDGetInput(t *testing.T) {
 }
 
 func TestUHIDOpenErrors(t *testing.T) {
-	if err := classifyUHIDOpenError(fs.ErrNotExist); !errors.Is(err, ErrDriverMissing) {
-		t.Errorf("ENOENT -> %v, want ErrDriverMissing", err)
+	err := classifyUHIDOpenError(fs.ErrNotExist)
+	if !errors.Is(err, ErrDriverMissing) || !errors.Is(err, fs.ErrNotExist) || !strings.Contains(err.Error(), "/dev/uhid") {
+		t.Errorf("ENOENT -> %v, want ErrDriverMissing wrapping fs.ErrNotExist", err)
 	}
-	if err := classifyUHIDOpenError(fs.ErrPermission); !errors.Is(err, ErrPermission) {
-		t.Errorf("EACCES -> %v, want ErrPermission", err)
+	err = classifyUHIDOpenError(fs.ErrPermission)
+	if !errors.Is(err, ErrPermission) || !errors.Is(err, fs.ErrPermission) || !strings.Contains(err.Error(), "/dev/uhid") {
+		t.Errorf("EACCES -> %v, want ErrPermission wrapping fs.ErrPermission", err)
 	}
 }
 
@@ -245,7 +263,19 @@ func TestWinUHIDABI(t *testing.T) {
 	if got := winUHIDGetInterfaceVersion; got != 0x00222024 {
 		t.Errorf("GET_INTERFACE_VERSION %#x, want 0x00222024", got)
 	}
-	cfg := HostConfig{VendorID: 0x054C, ProductID: 0x0CE6, Version: 0x0100, Descriptor: make([]byte, 273), SupportedEvents: supportedHostEvents}
+	cfg := HostConfig{VendorID: 0x054C, ProductID: 0x0CE6, Version: 0x0100, Descriptor: make([]byte, 273), SupportedEvents: supportedHostEvents, ReadReportPeriodUs: 250}
+	if got := winUHIDSetDeviceInfo; got != 0x0022A000 {
+		t.Errorf("SET_DEVICE_INFO %#x, want 0x0022A000", got)
+	}
+	if got := winUHIDCreateDevice; got != 0x0022A010 {
+		t.Errorf("CREATE_DEVICE %#x, want 0x0022A010", got)
+	}
+	if got := winUHIDStartDevice; got != 0x0022A014 {
+		t.Errorf("START_DEVICE %#x, want 0x0022A014", got)
+	}
+	if got := winUHIDCompleteReadEvent; got != 0x0022A020 {
+		t.Errorf("COMPLETE_READ_EVENT %#x, want 0x0022A020", got)
+	}
 	info := encodeWinUHIDDeviceInfo(cfg)
 	if len(info) != 30 {
 		t.Fatalf("device info size %d, want 30", len(info))
@@ -266,6 +296,19 @@ func TestWinUHIDABI(t *testing.T) {
 	}
 	if binary.LittleEndian.Uint16(packed[10:12]) != 273 {
 		t.Errorf("config descriptor length %d, want 273", binary.LittleEndian.Uint16(packed[10:12]))
+	}
+	periodOffset := 52
+	if strconv.IntSize == 32 {
+		periodOffset = 40
+	}
+	if binary.LittleEndian.Uint32(packed[periodOffset:periodOffset+4]) != 250 {
+		t.Errorf("config period %d, want 250", binary.LittleEndian.Uint32(packed[periodOffset:periodOffset+4]))
+	}
+	if err := checkWinUHIDInterfaceVersion(0); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("interface version 0 -> %v, want ErrUnsupported", err)
+	}
+	if err := checkWinUHIDInterfaceVersion(1); err != nil {
+		t.Errorf("interface version 1 -> %v, want nil", err)
 	}
 	event := encodeWinUHIDCompleteRead(3, 0, []byte{1, 2, 3})
 	if len(event) != 15 || binary.LittleEndian.Uint32(event[0:4]) != 3 || binary.LittleEndian.Uint32(event[8:12]) != 3 {
@@ -320,6 +363,81 @@ func TestCloseLifecycle(t *testing.T) {
 	default:
 		t.Fatal("Done is not closed")
 	}
+	if _, ok := <-device.Feedback(); ok {
+		t.Fatal("Feedback is still open")
+	}
+	if _, ok := <-device.Control(); ok {
+		t.Fatal("Control is still open")
+	}
+	host.mu.Lock()
+	closed := host.closed
+	host.mu.Unlock()
+	if !closed {
+		t.Fatal("host was not closed")
+	}
 }
 
-var _ = io.EOF
+func TestCloseDrainsPendingEvents(t *testing.T) {
+	host := newFakeHost()
+	host.emit(HostEvent{Kind: HostGetFeature, Request: 9, ReportID: 0x05})
+	drainHostEvents(host, context.Background())
+	completion := host.receiveCompletion(t)
+	if !errors.Is(completion.err, ErrClosed) {
+		t.Fatalf("drained completion error %v, want ErrClosed", completion.err)
+	}
+}
+
+func TestHostEventsStable(t *testing.T) {
+	if runtime.GOOS != "windows" && runtime.GOOS != "linux" {
+		t.Skip("no native host on this platform")
+	}
+	host, err := openPlatformHost()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host.Events() == nil {
+		t.Fatal("Events() is nil before Start")
+	}
+	if err := host.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func winUHIDTestEvent(eventType uint32, request uint32, reportID byte, data []byte) []byte {
+	raw := make([]byte, 13+len(data))
+	binary.LittleEndian.PutUint32(raw[0:4], eventType)
+	binary.LittleEndian.PutUint32(raw[4:8], request)
+	raw[8] = reportID
+	binary.LittleEndian.PutUint32(raw[9:13], uint32(len(data)))
+	copy(raw[13:], data)
+	return raw
+}
+
+func TestWinUHIDTimeoutNonFatal(t *testing.T) {
+	calls := 0
+	next := func() ([]byte, error) {
+		calls++
+		switch calls {
+		case 1:
+			return nil, syscall.Errno(1460)
+		case 2:
+			return winUHIDTestEvent(winUHIDEventWriteReport, 1, 0x02, []byte{0x02, 0, 0}), nil
+		default:
+			return nil, io.EOF
+		}
+	}
+	events := make(chan HostEvent, 1)
+	done := make(chan struct{})
+	err := winUHIDReadLoop(next, events, done)
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("read loop returned %v, want io.EOF", err)
+	}
+	select {
+	case event := <-events:
+		if event.Kind != HostOutputReport || event.ReportID != 0x02 {
+			t.Fatalf("event %+v, want output report", event)
+		}
+	default:
+		t.Fatal("timeout stopped the event loop")
+	}
+}

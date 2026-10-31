@@ -67,6 +67,7 @@ type HostConfig struct {
 	NeutralReport   []byte
 	Features        map[byte][]byte
 	SupportedEvents uint32
+	ReadReportPeriodUs uint32
 }
 
 // HostEventKind identifies a request from the operating-system HID host.
@@ -241,14 +242,33 @@ func (d *device) submitErrorLocked() error {
 func (d *device) Close() error {
 	d.beginClose(nil)
 	d.closeOnce.Do(func() {
-		d.closeErr = d.host.Close()
 		d.submits.Wait()
 		if d.loopDone != nil {
 			<-d.loopDone
 		}
+		drainHostEvents(d.host, context.Background())
+		d.closeErr = d.host.Close()
 		releaseIdentity(d.id, d.mac)
 	})
 	return d.closeErr
+}
+
+func drainHostEvents(host Host, ctx context.Context) {
+	events := host.Events()
+	if events == nil {
+		return
+	}
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			_ = host.Complete(ctx, event, nil, ErrClosed)
+		default:
+			return
+		}
+	}
 }
 
 func (d *device) beginClose(cause error) {
@@ -283,7 +303,13 @@ func (d *device) eventLoop() {
 			return
 		case event, ok := <-events:
 			if !ok {
-				d.beginClose(errors.New("virtual HID host event stream closed"))
+				cause := errors.New("virtual HID host event stream closed")
+				if hostErr, ok := d.host.(interface{ Err() error }); ok {
+					if err := hostErr.Err(); err != nil {
+						cause = err
+					}
+				}
+				d.beginClose(cause)
 				go d.Close()
 				return
 			}

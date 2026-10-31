@@ -14,18 +14,25 @@ import (
 )
 
 func openPlatformHost() (Host, error) {
-	return &winUHIDHost{}, nil
+	return &winUHIDHost{
+		events:     make(chan HostEvent, 32),
+		done:       make(chan struct{}),
+		readerDone: make(chan struct{}),
+	}, nil
 }
 
 type winUHIDHost struct {
-	mu         sync.Mutex
-	handle     windows.Handle
-	events     chan HostEvent
-	done       chan struct{}
-	readerDone chan struct{}
-	closed     bool
-	closeOnce  sync.Once
-	writeMu    sync.Mutex
+	mu            sync.Mutex
+	handle        windows.Handle
+	events        chan HostEvent
+	done          chan struct{}
+	readerDone    chan struct{}
+	readerStarted bool
+	readErr       error
+	closed        bool
+	closeOnce     sync.Once
+	eventsOnce    sync.Once
+	writeMu       sync.Mutex
 }
 
 func (h *winUHIDHost) Start(ctx context.Context, cfg HostConfig) error {
@@ -42,64 +49,54 @@ func (h *winUHIDHost) Start(ctx context.Context, cfg HostConfig) error {
 	}
 	h.mu.Lock()
 	h.handle = handle
-	h.events = make(chan HostEvent, 32)
-	h.done = make(chan struct{})
-	h.readerDone = make(chan struct{})
 	h.mu.Unlock()
 
-	cleanup := func() {
-		h.mu.Lock()
-		h.closed = true
-		done := h.done
-		h.mu.Unlock()
-		if done != nil {
-			close(done)
-		}
-		_ = windows.CancelIoEx(handle, nil)
-		_ = windows.CloseHandle(handle)
-	}
-
 	if version, err := h.interfaceVersion(); err != nil {
-		cleanup()
+		_ = h.Close()
 		return err
-	} else if version < winUHIDVersion {
-		cleanup()
-		return fmt.Errorf("%w: WinUHid interface version %d", ErrUnsupported, version)
+	} else if err := checkWinUHIDInterfaceVersion(version); err != nil {
+		_ = h.Close()
+		return err
 	}
 	if err := h.ioctl(winUHIDSetDeviceInfo, encodeWinUHIDDeviceInfo(cfg), nil); err != nil {
-		cleanup()
+		_ = h.Close()
 		return fmt.Errorf("set WinUHid device info: %w", err)
 	}
 	if err := h.ioctl(winUHIDSetReportDescriptor, cfg.Descriptor, nil); err != nil {
-		cleanup()
+		_ = h.Close()
 		return fmt.Errorf("set WinUHid report descriptor: %w", err)
 	}
 	instance, err := windows.UTF16FromString(cfg.ID)
 	if err != nil {
-		cleanup()
+		_ = h.Close()
 		return err
 	}
 	if err := h.ioctl(winUHIDSetInstanceID, utf16Bytes(instance), nil); err != nil {
-		cleanup()
+		_ = h.Close()
 		return fmt.Errorf("set WinUHid instance ID: %w", err)
 	}
 	if err := h.ioctl(winUHIDCreateDevice, nil, nil); err != nil {
-		cleanup()
+		_ = h.Close()
 		return fmt.Errorf("create WinUHid device: %w", err)
 	}
-
 	if err := h.ioctl(winUHIDStartDevice, nil, nil); err != nil {
-		cleanup()
+		_ = h.Close()
 		return fmt.Errorf("start WinUHid device: %w", err)
 	}
+
+	h.mu.Lock()
+	h.readerStarted = true
+	h.mu.Unlock()
 	go h.readLoop()
 	return nil
 }
 
-func (h *winUHIDHost) Events() <-chan HostEvent {
+func (h *winUHIDHost) Events() <-chan HostEvent { return h.events }
+
+func (h *winUHIDHost) Err() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.events
+	return h.readErr
 }
 
 func (h *winUHIDHost) SubmitReport(ctx context.Context, report []byte) error {
@@ -141,7 +138,7 @@ func (h *winUHIDHost) Close() error {
 	h.closeOnce.Do(func() {
 		h.mu.Lock()
 		h.closed = true
-		handle, done, readerDone := h.handle, h.done, h.readerDone
+		handle, done, started := h.handle, h.done, h.readerStarted
 		h.mu.Unlock()
 		if done != nil {
 			close(done)
@@ -150,46 +147,31 @@ func (h *winUHIDHost) Close() error {
 			_ = windows.CancelIoEx(handle, nil)
 			_ = windows.CloseHandle(handle)
 		}
-		if readerDone != nil {
-			<-readerDone
+		if started {
+			<-h.readerDone
+		} else {
+			h.closeEvents()
 		}
 	})
 	return nil
 }
 
+func (h *winUHIDHost) closeEvents() {
+	h.eventsOnce.Do(func() { close(h.events) })
+}
+
 func (h *winUHIDHost) readLoop() {
 	defer close(h.readerDone)
-	defer func() {
-		h.mu.Lock()
-		events := h.events
-		h.mu.Unlock()
-		if events != nil {
-			close(events)
-		}
-	}()
+	defer h.closeEvents()
 	h.mu.Lock()
 	handle := h.handle
 	h.mu.Unlock()
-	for {
-		buf, err := winUHIDNextEvent(handle)
-		if err != nil {
-			return
-		}
-		event, err := decodeWinUHIDEvent(buf)
-		if err != nil {
-			continue
-		}
+	if err := winUHIDReadLoop(func() ([]byte, error) {
+		return winUHIDNextEvent(handle)
+	}, h.events, h.done); err != nil {
 		h.mu.Lock()
-		events, done := h.events, h.done
+		h.readErr = err
 		h.mu.Unlock()
-		if events == nil {
-			return
-		}
-		select {
-		case events <- event:
-		case <-done:
-			return
-		}
 	}
 }
 

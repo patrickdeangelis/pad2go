@@ -154,10 +154,10 @@ func classifyUHIDOpenError(err error) error {
 		return err
 	}
 	if errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("%w: /dev/uhid: %v", ErrDriverMissing, err)
+		return fmt.Errorf("%w: /dev/uhid: %w", ErrDriverMissing, err)
 	}
 	if errors.Is(err, fs.ErrPermission) {
-		return fmt.Errorf("%w: /dev/uhid: %v", ErrPermission, err)
+		return fmt.Errorf("%w: /dev/uhid: %w", ErrPermission, err)
 	}
 	return fmt.Errorf("open /dev/uhid: %w", err)
 }

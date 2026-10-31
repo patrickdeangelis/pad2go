@@ -68,6 +68,11 @@ func encodeWinUHIDConfig(cfg HostConfig) []byte {
 	binary.LittleEndian.PutUint16(buf[10:12], uint16(len(cfg.Descriptor)))
 	// Pointer fields are zero in this pure encoder; the host sets them at the
 	// actual call site. The offsets are what the ABI test checks.
+	if strconv.IntSize == 64 {
+		binary.LittleEndian.PutUint32(buf[52:56], cfg.ReadReportPeriodUs)
+	} else {
+		binary.LittleEndian.PutUint32(buf[40:44], cfg.ReadReportPeriodUs)
+	}
 	return buf
 }
 
@@ -124,10 +129,42 @@ func classifyWinUHIDError(err error) error {
 	}
 	switch {
 	case errors.Is(err, syscall.Errno(2)), errors.Is(err, syscall.Errno(3)):
-		return fmt.Errorf("%w: %v", ErrDriverMissing, err)
+		return fmt.Errorf("%w: WinUHid %s: %v", ErrDriverMissing, winUHIDDevicePath, err)
 	case errors.Is(err, syscall.Errno(5)):
-		return fmt.Errorf("%w: %v", ErrPermission, err)
+		return fmt.Errorf("%w: WinUHid %s: %v", ErrPermission, winUHIDDevicePath, err)
 	default:
 		return fmt.Errorf("open %s: %w", winUHIDDevicePath, err)
+	}
+}
+
+func winUHIDTimeout(err error) bool {
+	return errors.Is(err, syscall.Errno(1460)) // ERROR_TIMEOUT / WAIT_TIMEOUT
+}
+
+func checkWinUHIDInterfaceVersion(version uint32) error {
+	if version < winUHIDVersion {
+		return fmt.Errorf("%w: WinUHid interface version %d", ErrUnsupported, version)
+	}
+	return nil
+}
+
+func winUHIDReadLoop(next func() ([]byte, error), events chan<- HostEvent, done <-chan struct{}) error {
+	for {
+		buf, err := next()
+		if err != nil {
+			if winUHIDTimeout(err) {
+				continue
+			}
+			return err
+		}
+		event, err := decodeWinUHIDEvent(buf)
+		if err != nil {
+			continue
+		}
+		select {
+		case events <- event:
+		case <-done:
+			return nil
+		}
 	}
 }

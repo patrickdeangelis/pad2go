@@ -15,21 +15,30 @@ import (
 type uhidHost struct {
 	open func() (io.ReadWriteCloser, error)
 
-	mu         sync.Mutex
-	rw         io.ReadWriteCloser
-	codec      *uhidCodec
-	events     chan HostEvent
-	started    chan struct{}
-	startOnce  sync.Once
-	done       chan struct{}
-	readerDone chan struct{}
-	closed     bool
-	closeOnce  sync.Once
-	writeMu    sync.Mutex
+	mu            sync.Mutex
+	rw            io.ReadWriteCloser
+	codec         *uhidCodec
+	events        chan HostEvent
+	started       chan struct{}
+	startOnce     sync.Once
+	done          chan struct{}
+	readerDone    chan struct{}
+	readerStarted bool
+	readErr       error
+	closed        bool
+	closeOnce     sync.Once
+	eventsOnce    sync.Once
+	writeMu       sync.Mutex
 }
 
 func newUHIDHost(open func() (io.ReadWriteCloser, error)) *uhidHost {
-	return &uhidHost{open: open}
+	return &uhidHost{
+		open:       open,
+		events:     make(chan HostEvent, 32),
+		started:    make(chan struct{}),
+		done:       make(chan struct{}),
+		readerDone: make(chan struct{}),
+	}
 }
 
 func (h *uhidHost) Start(ctx context.Context, cfg HostConfig) error {
@@ -40,10 +49,7 @@ func (h *uhidHost) Start(ctx context.Context, cfg HostConfig) error {
 	h.mu.Lock()
 	h.rw = rw
 	h.codec = &uhidCodec{rw: rw}
-	h.events = make(chan HostEvent, 32)
-	h.started = make(chan struct{})
-	h.done = make(chan struct{})
-	h.readerDone = make(chan struct{})
+	h.readerStarted = true
 	h.mu.Unlock()
 
 	go h.readLoop()
@@ -68,10 +74,12 @@ func (h *uhidHost) Start(ctx context.Context, cfg HostConfig) error {
 	}
 }
 
-func (h *uhidHost) Events() <-chan HostEvent {
+func (h *uhidHost) Events() <-chan HostEvent { return h.events }
+
+func (h *uhidHost) Err() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.events
+	return h.readErr
 }
 
 func (h *uhidHost) SubmitReport(_ context.Context, report []byte) error {
@@ -115,7 +123,7 @@ func (h *uhidHost) Close() error {
 	h.closeOnce.Do(func() {
 		h.mu.Lock()
 		h.closed = true
-		codec, rw, done, readerDone := h.codec, h.rw, h.done, h.readerDone
+		codec, rw, done, readerDone, started := h.codec, h.rw, h.done, h.readerDone, h.readerStarted
 		h.mu.Unlock()
 
 		if done != nil {
@@ -127,24 +135,28 @@ func (h *uhidHost) Close() error {
 		if rw != nil {
 			_ = rw.Close()
 		}
-		if readerDone != nil {
+		if started {
 			<-readerDone
 		}
+		h.closeEvents()
 	})
 	return nil
 }
 
+func (h *uhidHost) closeEvents() {
+	h.eventsOnce.Do(func() { close(h.events) })
+}
+
 func (h *uhidHost) readLoop() {
 	defer close(h.readerDone)
-	defer close(h.events)
+	defer h.closeEvents()
 
 	for {
 		typ, payload, err := h.codec.read()
 		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				// The core observes the closed event stream and closes the
-				// device; no separate error channel is needed.
-			}
+			h.mu.Lock()
+			h.readErr = err
+			h.mu.Unlock()
 			return
 		}
 		switch typ {
@@ -202,3 +214,5 @@ func (h *uhidHost) emit(event HostEvent) bool {
 		return false
 	}
 }
+
+var _ = errors.Is
