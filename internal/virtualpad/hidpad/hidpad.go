@@ -246,8 +246,10 @@ func (d *device) Close() error {
 		if d.loopDone != nil {
 			<-d.loopDone
 		}
-		drainHostEvents(d.host, context.Background())
+		// Stop the host reader first: after this returns the event channel is
+		// stable, so a request cannot be enqueued between the drain and close.
 		d.closeErr = d.host.Close()
+		drainHostEvents(d.host, context.Background())
 		releaseIdentity(d.id, d.mac)
 	})
 	return d.closeErr

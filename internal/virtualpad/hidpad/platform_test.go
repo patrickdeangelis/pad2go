@@ -380,6 +380,11 @@ func TestCloseLifecycle(t *testing.T) {
 func TestCloseDrainsPendingEvents(t *testing.T) {
 	host := newFakeHost()
 	host.emit(HostEvent{Kind: HostGetFeature, Request: 9, ReportID: 0x05})
+	// Close stops the host reader and closes its channel before the core drains,
+	// so no new request can arrive between the drain and host shutdown.
+	if err := host.Close(); err != nil {
+		t.Fatal(err)
+	}
 	drainHostEvents(host, context.Background())
 	completion := host.receiveCompletion(t)
 	if !errors.Is(completion.err, ErrClosed) {
