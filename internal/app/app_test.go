@@ -29,6 +29,48 @@ type fakeDev struct {
 	closed  bool
 }
 
+type lightingDev struct {
+	*fakeDev
+	color                   [3]byte
+	brightness              byte
+	off                     bool
+	called                  bool
+	leftPreset, rightPreset string
+}
+
+func (d *lightingDev) SetTriggerPresets(left, right string) error {
+	d.leftPreset, d.rightPreset = left, right
+	return nil
+}
+
+func (d *lightingDev) SetLighting(color [3]byte, brightness byte, off bool) error {
+	d.color, d.brightness, d.off, d.called = color, brightness, off, true
+	return nil
+}
+
+func TestDualSenseLightingAppliedOnAttach(t *testing.T) {
+	a, _ := newApp(t, func(c *config.Config) {
+		c.DualSenseLighting = true
+		c.DualSenseColor = "#7f80ff"
+		c.DualSenseBrightness = 25
+		c.DualSensePlayerLED = false
+		c.DualSenseTriggerLeft = "resistance"
+		c.DualSenseTriggerRight = "barrier"
+	})
+	d := &lightingDev{fakeDev: newDev("ds", 0)}
+	d.kind = protocol.KindDualSense
+	if err := a.AddDevice(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if !d.called || d.color != [3]byte{127, 128, 255} || d.brightness != 25 || !d.off {
+		t.Fatalf("lighting %+v", d)
+	}
+	if d.leftPreset != "resistance" || d.rightPreset != "barrier" {
+		t.Fatalf("trigger presets = %q %q", d.leftPreset, d.rightPreset)
+	}
+}
+
 func newDev(addr string, pid uint16) *fakeDev {
 	return &fakeDev{addr: addr, kind: protocol.KindOf(pid)}
 }
@@ -397,4 +439,180 @@ func TestPlayersWatchRumbleDisconnect(t *testing.T) {
 	if changes < 2 {
 		t.Fatalf("OnChange called %d times", changes)
 	}
+}
+func dual(t *testing.T, a *App, addr string) *fakeDev {
+	t.Helper()
+	d := newDev(addr, 0)
+	d.kind = protocol.KindDualSense
+	if err := a.AddDevice(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+func playerOf(a *App, addr string) int {
+	for _, p := range a.Players() {
+		for _, m := range p.Members {
+			if m.Addr == addr {
+				return p.Number
+			}
+		}
+	}
+	return 0
+}
+func TestDualSenseAttachesLowestFreeSlot(t *testing.T) {
+	a, _ := newApp(t, nil)
+	dual(t, a, "d1")
+	if got := playerOf(a, "d1"); got != 1 {
+		t.Fatalf("slot=%d", got)
+	}
+	a, _ = newApp(t, nil)
+	for _, n := range []string{"p1", "p2"} {
+		if err := a.AddDevice(context.Background(), newDev(n, protocol.ProController2PID)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dual(t, a, "d3")
+	if got := playerOf(a, "d3"); got != 3 {
+		t.Fatalf("slot=%d", got)
+	}
+}
+func TestDualSenseDetachFreesSlot(t *testing.T) {
+	a, _ := newApp(t, nil)
+	d := dual(t, a, "d")
+	if err := a.Disconnect(1); err != nil {
+		t.Fatal(err)
+	}
+	if a.Connected("d") || !d.closed {
+		t.Fatal("dual not detached")
+	}
+}
+func TestDualSenseRumbleTest(t *testing.T) {
+	a, _ := newApp(t, nil)
+	d := dual(t, a, "d")
+	if err := a.TestRumble(1, 15*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.rumbles) < 2 || d.rumbles[0].LFAmp == 0 || d.rumbles[0].HFAmp == 0 || d.rumbles[len(d.rumbles)-1].LFAmp != 0 {
+		t.Fatalf("rumbles=%+v", d.rumbles)
+	}
+}
+func TestDualSenseCalibratedMotionToDSU(t *testing.T) {
+	srv, err := dsu.Listen("127.0.0.1:0", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	cli, err := net.DialUDP("udp", nil, srv.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cli.Close()
+	a := New(config.Default(), &virtualpad.Recorder{}, srv, nil)
+	d := newDev("d", 0)
+	d.kind = protocol.KindDualSense
+	if err := a.AddDevice(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	subscribeAll(cli)
+	buf := make([]byte, 256)
+	cli.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
+	for {
+		if _, err := cli.Read(buf); err != nil {
+			break
+		}
+	}
+	// A missing calibration must not suppress buttons, sticks, or touch.
+	d.send(protocol.Input{BatteryBand: protocol.BatteryHigh, Buttons: protocol.BtnB, Gyro: [3]int16{300, 200, 100}})
+	cli.SetReadDeadline(time.Now().Add(time.Second))
+	n, err := cli.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 100 || buf[16+21]&0x40 == 0 {
+		t.Fatalf("uncalibrated DSU buttons: %x", buf[:n])
+	}
+	for _, offset := range []int{60, 64, 68, 72, 76, 80} {
+		if math.Float32frombits(binary.LittleEndian.Uint32(buf[16+offset:])) != 0 {
+			t.Fatal("uncalibrated DSU motion must be zero")
+		}
+	}
+	d.send(protocol.Input{DualSenseMotionCalibrated: true, DualSenseAccelG: [3]float32{1, 2, 3}, DualSenseGyroDPS: [3]float32{10, 20, 30}, AnalogTriggers: true, LeftTrigger: 33, RightTrigger: 99, Touch: [2]protocol.TouchContact{{Active: true, ID: 5, X: 100, Y: 200}}})
+	cli.SetReadDeadline(time.Now().Add(time.Second))
+	n, err = cli.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 100 || buf[22] != dsu.ModelDS4 {
+		t.Fatalf("DSU packet size=%d model=%d", n, buf[22])
+	}
+	if buf[16+38] != 99 || buf[16+39] != 33 || buf[16+40] != 1 || buf[16+41] != 5 || binary.LittleEndian.Uint16(buf[16+42:]) != 100 {
+		t.Fatalf("DSU trigger/touch data %x", buf[54:68])
+	}
+	f := func(offset int) float32 { return math.Float32frombits(binary.LittleEndian.Uint32(buf[16+offset:])) }
+	accel := [3]float32{f(60), f(64), f(68)}
+	gyro := [3]float32{f(72), f(76), f(80)}
+	if accel != [3]float32{-1, -2, -3} || gyro != [3]float32{10, -20, -30} {
+		t.Fatalf("accel=%v gyro=%v", accel, gyro)
+	}
+}
+func TestDualSenseSlotsFullRetries(t *testing.T) {
+	a, _ := newApp(t, func(c *config.Config) { c.MaxControllers = 1 })
+	if err := a.AddDevice(context.Background(), newDev("p", protocol.ProController2PID)); err != nil {
+		t.Fatal(err)
+	}
+	d := newDev("d", 0)
+	d.kind = protocol.KindDualSense
+	if err := a.AddDevice(context.Background(), d); !errors.Is(err, ErrFull) {
+		t.Fatalf("err=%v", err)
+	}
+	_ = a.Disconnect(1)
+	if err := a.AddDevice(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestDualSenseReplugKeepsSlot(t *testing.T) {
+	a, _ := newApp(t, nil)
+	if err := a.AddDevice(context.Background(), newDev("p1", protocol.ProController2PID)); err != nil {
+		t.Fatal(err)
+	}
+	d := dual(t, a, "d")
+	if playerOf(a, "d") != 2 {
+		t.Fatal("not in slot 2")
+	}
+	_ = a.Disconnect(2)
+	d = dual(t, a, "d")
+	if playerOf(a, "d") != 2 {
+		t.Fatal("slot not remembered")
+	}
+	_ = d.Close()
+	_ = a.Disconnect(2)
+	if err := a.AddDevice(context.Background(), newDev("p2", protocol.ProController2PID)); err != nil {
+		t.Fatal(err)
+	}
+	d = dual(t, a, "d")
+	if playerOf(a, "d") != 3 {
+		t.Fatalf("occupied remembered slot should fall back to lowest free, got %d", playerOf(a, "d"))
+	}
+}
+func TestDualSenseNeverMerged(t *testing.T) {
+	a, _ := newApp(t, func(c *config.Config) { c.CombineJoyCons = true })
+	if err := a.AddDevice(context.Background(), newDev("p", protocol.ProController2PID)); err != nil {
+		t.Fatal(err)
+	}
+	d := dual(t, a, "d")
+	if playerOf(a, "d") == playerOf(a, "p") {
+		t.Fatal("merged with Pro")
+	}
+	a, _ = newApp(t, func(c *config.Config) { c.CombineJoyCons = true })
+	if err := a.AddDevice(context.Background(), newDev("left", protocol.JoyCon2LeftPID)); err != nil {
+		t.Fatal(err)
+	}
+	d = dual(t, a, "d2")
+	if playerOf(a, "d2") == playerOf(a, "left") {
+		t.Fatal("merged with Joy-Con")
+	}
+	_ = d.Close()
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/patrickdeangelis/pad2go/internal/app"
 	"github.com/patrickdeangelis/pad2go/internal/config"
 	"github.com/patrickdeangelis/pad2go/internal/dsu"
+	"github.com/patrickdeangelis/pad2go/internal/hid"
 	"github.com/patrickdeangelis/pad2go/internal/lifecycle"
 	"github.com/patrickdeangelis/pad2go/internal/protocol"
 	"github.com/patrickdeangelis/pad2go/internal/virtualpad"
@@ -30,6 +31,7 @@ type Options struct {
 	// Radio returns the Bluetooth radio. It is retried on every restart until
 	// it succeeds.
 	Radio func() (lifecycle.Radio, error)
+	HID   hid.Backend
 	// OpenBackend opens the virtual gamepad output (virtualpad.Open).
 	OpenBackend func(kind string) (virtualpad.Backend, error)
 	Version     string
@@ -204,6 +206,12 @@ func (s *Service) runOnce(ctx context.Context, cfg *config.Config) {
 		s.backend = "none"
 	}
 	s.mu.Unlock()
+
+	hidBackend := s.opt.HID
+	if hidBackend == nil {
+		hidBackend = hid.DefaultBackend()
+	}
+	go (&hid.Scanner{Backend: hidBackend, App: a, Log: s.log, Deadzone: cfg.Deadzone("dualsense"), HasDeadzone: true}).Run(ctx)
 
 	radio, err := s.radioOnce()
 	if err != nil {
@@ -438,11 +446,15 @@ type PlayerView struct {
 
 // MemberView is one controller.
 type MemberView struct {
-	Addr    string  `json:"addr"`
-	Name    string  `json:"name"`
-	Kind    string  `json:"kind"`    // left, right, pro, gc
-	Battery string  `json:"battery"` // "high", "medium", "low" or "" when unknown
-	Volts   float64 `json:"volts"`   // last reported pack voltage, 0 when unknown
+	Addr           string                   `json:"addr"`
+	Name           string                   `json:"name"`
+	Kind           string                   `json:"kind"` // left, right, pro, gc
+	Transport      string                   `json:"transport"`
+	Battery        string                   `json:"battery"` // "high", "medium", "low" or "" when unknown
+	Volts          float64                  `json:"volts"`   // last reported pack voltage, 0 when unknown
+	BatteryPercent *int                     `json:"batteryPercent,omitempty"`
+	BatteryStatus  string                   `json:"batteryStatus,omitempty"`
+	Diagnostics    *protocol.HIDDiagnostics `json:"diagnostics,omitempty"`
 }
 
 // DSUView is the motion server status.
@@ -462,6 +474,8 @@ func kindName(k protocol.Kind) string {
 		return "right"
 	case protocol.KindGameCube:
 		return "gc"
+	case protocol.KindDualSense:
+		return "ds"
 	}
 	return "pro"
 }
@@ -513,7 +527,24 @@ func (s *Service) Snapshot() Snapshot {
 		for _, p := range s.app.Players() {
 			v := PlayerView{Player: p.Number}
 			for _, m := range p.Members {
-				v.Members = append(v.Members, MemberView{Addr: m.Addr, Name: m.Name, Kind: kindName(m.Kind), Battery: m.Battery().String(), Volts: m.Volts})
+				view := MemberView{Addr: m.Addr, Name: m.Name, Kind: kindName(m.Kind), Transport: m.Transport, Battery: m.Battery().String(), Volts: m.Volts, Diagnostics: m.Diagnostics}
+				if m.BatteryDetail != 0 {
+					raw := byte(m.BatteryDetail - 1)
+					switch raw >> 4 {
+					case 0, 1, 2:
+						percent := min(int(raw&15)*10+5, 100)
+						if raw>>4 == 2 {
+							percent = 100
+						}
+						view.BatteryPercent = &percent
+						view.BatteryStatus = []string{"discharging", "charging", "full"}[raw>>4]
+					case 10, 11, 15:
+						view.BatteryStatus = "error"
+					default:
+						view.BatteryStatus = "unknown"
+					}
+				}
+				v.Members = append(v.Members, view)
 			}
 			v.Name = p.Members[0].Name
 			if len(p.Members) == 2 {

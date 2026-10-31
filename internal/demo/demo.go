@@ -47,8 +47,11 @@ func NewRadio() *Radio {
 	r.devices = []*device{
 		{addr: "D0:00:00:00:00:01", pid: protocol.JoyCon2LeftPID, voltage: 3.08, delay: 500 * time.Millisecond},
 		{addr: "D0:00:00:00:00:02", pid: protocol.JoyCon2RightPID, voltage: 3.45, delay: 3 * time.Second},
-		{addr: "D0:00:00:00:00:03", pid: protocol.ProController2PID, voltage: 3.2, paired: true, delay: 6 * time.Second},
-		{addr: "D0:00:00:00:00:04", pid: protocol.NSOGameCubeControllerPID, voltage: 3.7, paired: true, delay: 9 * time.Second},
+		// Start these as unpaired so demo works regardless of the user's
+		// configured Bluetooth adapter MAC. Once connected, OnClosed marks
+		// them paired to the simulated host for reconnects.
+		{addr: "D0:00:00:00:00:03", pid: protocol.ProController2PID, voltage: 3.2, delay: 6 * time.Second},
+		{addr: "D0:00:00:00:00:04", pid: protocol.NSOGameCubeControllerPID, voltage: 3.7, delay: 9 * time.Second},
 	}
 	for _, d := range r.devices {
 		r.advertiseAfter(d, d.delay)
@@ -145,9 +148,32 @@ func feed(sim *controllertest.Sim, d *device, stop <-chan struct{}) {
 	}
 }
 
-var cycle = []uint32{
-	protocol.BtnA, protocol.BtnB, protocol.BtnX, protocol.BtnY, protocol.BtnL, protocol.BtnR,
-	protocol.BtnUp, protocol.BtnRight, protocol.BtnDown, protocol.BtnLeft, protocol.BtnZL, protocol.BtnZR,
+var (
+	joyConLeftCycle = []uint32{
+		protocol.BtnUp, protocol.BtnDown, protocol.BtnLeft, protocol.BtnRight,
+		protocol.BtnL, protocol.BtnZL, protocol.BtnMinus, protocol.BtnLStick,
+		protocol.BtnCapture, protocol.BtnSLL, protocol.BtnSRL,
+	}
+	joyConRightCycle = []uint32{
+		protocol.BtnA, protocol.BtnB, protocol.BtnX, protocol.BtnY,
+		protocol.BtnR, protocol.BtnZR, protocol.BtnPlus, protocol.BtnRStick,
+		protocol.BtnHome, protocol.BtnC, protocol.BtnSLR, protocol.BtnSRR,
+	}
+	pairedCycle = []uint32{
+		protocol.BtnA, protocol.BtnB, protocol.BtnX, protocol.BtnY, protocol.BtnL, protocol.BtnR,
+		protocol.BtnUp, protocol.BtnRight, protocol.BtnDown, protocol.BtnLeft, protocol.BtnZL, protocol.BtnZR,
+	}
+)
+
+func buttonCycle(d *device) []uint32 {
+	switch d.pid {
+	case protocol.JoyCon2LeftPID:
+		return joyConLeftCycle
+	case protocol.JoyCon2RightPID:
+		return joyConRightCycle
+	default:
+		return pairedCycle
+	}
 }
 
 func stick(b []byte, x, y float64) {
@@ -160,6 +186,7 @@ func report(d *device, t, amp float64) []byte {
 	b := make([]byte, 64)
 	btn := uint32(0)
 	if amp > 0 && math.Mod(t, 0.5) < 0.3 {
+		cycle := buttonCycle(d)
 		btn = cycle[int(t*2)%len(cycle)]
 	}
 	x, y := amp*math.Sin(t*1.6)*0.8, amp*math.Cos(t*1.6)*0.8

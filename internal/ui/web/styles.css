@@ -298,6 +298,7 @@ input[type='range'], progress { accent-color: var(--accent); }
 .leds { display: inline-flex; gap: 3px; }
 .leds span { width: 5px; height: 5px; border-radius: 50%; background: color-mix(in srgb, var(--label) 20%, transparent); }
 .leds .lit { background: var(--success); }
+.dualsense-leds .lit { background: #fff; box-shadow: 0 0 0 1px #81868d, 0 0 3px rgba(255, 255, 255, .8); }
 .battery { display: inline-flex; align-items: center; gap: 3px; }
 .battery.low { color: var(--warning); }
 .battery .icon { width: 17px; height: 17px; }
@@ -343,7 +344,7 @@ input[type='range'], progress { accent-color: var(--accent); }
 .discovery { margin-bottom: 4px; }
 
 /* Input test sheet. */
-.sheet { border: 0; padding: 0; width: min(640px, calc(100vw - 48px)); border-radius: 12px; background: var(--content-bg); color: var(--label); box-shadow: 0 22px 70px rgba(0, 0, 0, .35), 0 0 0 .5px rgba(0, 0, 0, .2); }
+.sheet { border: 0; padding: 0; width: min(640px, calc(100vw - 48px)); max-height: calc(100dvh - 32px); overflow-y: auto; border-radius: 12px; background: var(--content-bg); color: var(--label); box-shadow: 0 22px 70px rgba(0, 0, 0, .35), 0 0 0 .5px rgba(0, 0, 0, .2); }
 :root[data-platform='macos'] .sheet { margin-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; animation: sheet-in .22s ease-out; }
 @keyframes sheet-in { from { transform: translateY(-24px); opacity: 0; } }
 .sheet::backdrop { background: rgba(0, 0, 0, .18); }
@@ -398,3 +399,166 @@ input[type='range'], progress { accent-color: var(--accent); }
 body:has(#pending:not([hidden])) .content-inner { padding-bottom: 96px; }
 body:has(#pending:not([hidden])) .toasts { bottom: 88px; }
 @media (max-width: 720px) { #pending { left: 80px; } }
+
+/* Device-specific controller drawings and the physical-to-virtual test view. */
+.joy { width: 48px; height: 112px; border: 1px solid color-mix(in srgb, var(--label) 16%, transparent); box-shadow: inset 5px 0 var(--teal), inset -2px 0 rgba(255,255,255,.08), 0 2px 4px rgba(0,0,0,.18); }
+.joy.right { box-shadow: inset -5px 0 var(--gold), inset 2px 0 rgba(255,255,255,.08), 0 2px 4px rgba(0,0,0,.18); }
+.joy::after { content: ''; position: absolute; top: 10px; bottom: 10px; left: 5px; right: 5px; border: 1px solid rgba(255,255,255,.06); border-radius: inherit; pointer-events: none; }
+.joy .stick { box-shadow: 0 1px 2px #000; }
+.joy .hw-key { display: grid; place-items: center; width: 10px; height: 10px; color: #f5f5f7; font-size: 6px; line-height: 1; background: #56565a; border: 1px solid #88888d; }
+.pro [data-input], .joy [data-input], .dualSense [data-input] { transition: filter .12s ease, background-color .12s ease, box-shadow .12s ease; }
+.pro [data-input].is-active, .joy [data-input].is-active, .dualSense [data-input].is-active { filter: brightness(1.8); box-shadow: 0 0 0 2px var(--accent); }
+.dualSense { width: 148px; height: 82px; position: relative; flex: 0 0 auto; border-radius: 38px 38px 25px 25px; background: linear-gradient(180deg,#e8e9ec,#c9cbd1); border: 1px solid #a8aab0; box-shadow: inset 0 4px 0 rgba(255,255,255,.55), 0 2px 5px rgba(0,0,0,.2); }
+.dualSense::before { content: ''; position: absolute; inset: 13px 10px 4px; background: inherit; border-radius: 15px 15px 25px 25px; }
+.ds-grip { position: absolute; z-index: 0; width: 37px; height: 59px; top: 29px; background: #d5d6db; border: 1px solid #a8aab0; }
+.ds-grip.left { left: 4px; border-radius: 12px 8px 20px 17px; transform: rotate(12deg); }
+.ds-grip.right { right: 4px; border-radius: 8px 12px 17px 20px; transform: rotate(-12deg); }
+.ds-touchpad { position: absolute; z-index: 2; left: 56px; top: 9px; width: 36px; height: 16px; border: 1px solid #9b9da3; border-radius: 5px; background: #d2d4d9; }
+.ds-stick { position: absolute; z-index: 2; top: 43px; width: 13px; height: 13px; border: 3px solid #85878d; border-radius: 50%; background: #323338; }
+.ds-stick.left { left: 37px; } .ds-stick.right { left: 97px; }
+.ds-dpad, .ds-face { position: absolute; z-index: 2; top: 31px; width: 36px; height: 36px; }
+.ds-dpad { left: 13px; } .ds-face { right: 12px; }
+.ds-dpad i, .ds-face i { position: absolute; display: grid; place-items: center; width: 12px; height: 12px; color: #505258; font-size: 9px; font-style: normal; }
+.ds-dpad i:nth-child(1), .ds-face i:nth-child(1) { top: 0; left: 12px; }
+.ds-dpad i:nth-child(2), .ds-face i:nth-child(2) { top: 12px; left: 0; }
+.ds-dpad i:nth-child(3), .ds-face i:nth-child(3) { top: 12px; right: 0; }
+.ds-dpad i:nth-child(4), .ds-face i:nth-child(4) { bottom: 0; left: 12px; }
+.ds-center { position: absolute; z-index: 2; left: 70px; top: 31px; width: 16px; height: 8px; border-radius: 5px; background: #a7a9af; color: #4b4d53; font: 5px/8px sans-serif; text-align: center; }
+.ds-options { position: absolute; z-index: 2; top: 29px; right: 41px; color: #51535a; font: 4px sans-serif; }
+.gamecubePad { position: relative; width: 154px; height: 82px; flex: 0 0 auto; border: 1px solid #38383b; border-radius: 38px 38px 24px 24px; background: #55565b; box-shadow: inset 0 4px 0 rgba(255,255,255,.12), 0 2px 5px rgba(0,0,0,.2); }
+.gc-stick, .gc-cstick { position: absolute; z-index: 1; width: 18px; height: 18px; border: 4px solid #8f9094; border-radius: 50%; background: #292a2e; }
+.gc-stick { left: 31px; top: 34px; } .gc-cstick { right: 38px; top: 53px; border-color: #d7ad45; }
+.gc-dpad { position: absolute; left: 8px; top: 48px; width: 29px; height: 26px; }
+.gc-dpad i { position: absolute; display: grid; place-items: center; width: 10px; height: 9px; color: #ddd; font: normal 7px sans-serif; }
+.gc-dpad i:nth-child(1) { top: 0; left: 9px; } .gc-dpad i:nth-child(2) { top: 8px; left: 0; } .gc-dpad i:nth-child(3) { top: 8px; right: 0; } .gc-dpad i:nth-child(4) { bottom: 0; left: 9px; }
+.gc-face { position: absolute; top: 18px; right: 13px; width: 48px; height: 48px; }
+.gc-face i { position: absolute; display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; color: #f7f7f7; background: #77787d; font: normal 8px sans-serif; }
+.gc-face i:nth-child(1) { top: 0; left: 16px; } .gc-face i:nth-child(2) { top: 15px; left: 0; } .gc-face i:nth-child(3) { top: 15px; right: 0; width: 21px; height: 21px; color: #243521; background: #71b94a; } .gc-face i:nth-child(4) { bottom: 0; left: 16px; color: #f4ded7; background: #c94c3e; }
+.gc-start { position: absolute; left: 75px; top: 35px; color: #ddd; font: 5px sans-serif; }
+.gc-z { position: absolute; right: 1px; top: 15px; padding: 2px 4px; border-radius: 4px; color: #eee; background: #38393d; font: 5px sans-serif; }
+.gamecubePad [data-input].is-active { filter: brightness(1.8); box-shadow: 0 0 0 2px var(--accent); }
+.test-device-section { margin: 4px 20px 0; padding: 12px 16px 6px; border-radius: 12px; background: color-mix(in srgb, var(--label) 5%, transparent); }
+.test-device-heading { display: flex; align-items: baseline; justify-content: space-between; color: var(--secondary); font-size: 11px; }
+.test-device-heading strong { color: var(--label); font-size: 13px; font-weight: 600; }
+.test-shoulders { display: flex; justify-content: space-between; gap: 18px; margin: 8px auto 0; max-width: 330px; }
+.shoulder-side { display: flex; gap: 6px; }
+.shoulder-side span { min-width: 36px; padding: 4px 8px; border: 1px solid color-mix(in srgb, var(--label) 14%, transparent); border-radius: 7px; background: color-mix(in srgb, var(--label) 7%, transparent); color: var(--secondary); font-size: 10px; font-weight: 600; text-align: center; }
+.shoulder-side span.is-active { border-color: var(--accent); background: var(--accent); color: white; }
+.test-mapping { margin: 0; padding: 0 0 8px; color: var(--secondary); font-size: 11px; text-align: center; }
+.test-controller { min-height: 128px; display: flex; justify-content: center; align-items: center; gap: 22px; overflow: hidden; }
+.test-controller .joy { transform: rotate(-4deg) scale(.92); }
+.test-controller .joy.right { transform: rotate(4deg) scale(.92); }
+.test-controller .pro { transform: scale(1.24); margin: 6px 14px 18px; }
+.test-controller .dualSense { transform: scale(1.48); margin: 18px 34px; }
+.test-controller .gamecubePad { transform: scale(1.3); margin: 6px 18px 14px; }
+.output-heading { margin: 8px 20px 0; color: var(--secondary); font-size: 11px; font-weight: 600; }
+.input-layout { padding-top: 6px; }
+@media (max-width: 720px) { .test-device-section { margin-inline: 12px; } .test-controller { min-height: 118px; } }
+
+/* The input test pairs the controller the person is holding with its Xbox output. */
+.sheet:open { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, .92fr); grid-template-rows: auto auto 1fr auto; width: min(920px, calc(100vw - 40px)); }
+.sheet-header { grid-column: 1 / -1; padding: 20px 24px 12px; }
+.test-device-section { grid-column: 1; grid-row: 2 / 4; align-self: stretch; margin: 0 12px 16px 24px; padding: 16px; border: 1px solid var(--separator); border-radius: 12px; background: color-mix(in srgb, var(--label) 3%, transparent); }
+.test-device-heading span, .output-heading { color: var(--secondary); font-size: 11px; }
+.test-controller { min-height: 200px; padding: 10px 4px; }
+.controller-svg { display: block; width: min(100%, 360px); height: auto; overflow: visible; }
+.test-controller.joy-pair { gap: 18px; }
+.test-controller.joy-pair .controller-svg { width: min(38%, 100px); }
+.device-icon .art { width: 80px; height: 40px; display: flex; justify-content: center; align-items: center; overflow: hidden; transform: translate(-50%, -50%); }
+.device-icon .controller-svg { width: 78px; height: auto; flex: none; }
+.device-icon .joycon-svg { width: 20px; height: 44px; }
+.device-icon .joycon-svg + .joycon-svg { margin-left: 3px; }
+.output-heading { grid-column: 2; grid-row: 2; align-self: end; margin: 0 24px 4px 8px; font-weight: 700; }
+.input-layout { grid-column: 2; grid-row: 3; grid-template-columns: minmax(160px, .9fr) minmax(0, 1fr); gap: 12px; padding: 8px 24px 16px 8px; align-items: center; }
+.input-pad-body { padding: 14px 10px; }
+.sheet-footer { grid-column: 1 / -1; border-top: 1px solid var(--separator); }
+.test-shoulders { max-width: none; margin-top: 12px; }
+.test-mapping { padding: 8px 4px 0; line-height: 1.6; }
+.test-mapping { font-size: 12px; }
+.controller-svg text { fill: #f4f5f7; font-family: system-ui, sans-serif; font-weight: 700; pointer-events: none; }
+.controller-svg .svg-control circle { fill: #383b44; stroke: #a4a8b0; stroke-width: 1.5; }
+.controller-svg .svg-control text { fill: #f7f8fa; font-size: 9px; }
+.ds-shell { fill: #eceef1; stroke: #b6bbc3; stroke-width: 2; }
+.ds-black { fill: #282a30; stroke: #17181c; stroke-width: 1.5; }
+.ds-touch { fill: #33363d; stroke: #737780; stroke-width: 1.5; }
+.ds-mic { fill: #8f939b; }
+.ds-stick-ring { fill: #d2d4d9; stroke: #a7aab1; stroke-width: 2; }
+.ds-stick-cap { fill: #383a40; stroke: #15161a; stroke-width: 1.5; }
+.ds-dpad { fill: #191a1e; stroke: #41434a; stroke-width: 1; }
+.ds-dpad { fill: #191a1e; stroke: #41434a; stroke-width: 1; }.ds-dpad-mark { fill: #aeb1b8; font-size: 12px; pointer-events: none; }
+.ds-face { fill: #202228; stroke: #90949d; stroke-width: 1.5; }
+.ds-face + text { fill: #c7cbd2; font-size: 12px; }
+.ds-button { fill: #555961; stroke: #92969e; stroke-width: 1; }
+.ds-grip-line { fill: none; stroke: #d1d4d9; stroke-width: 2; }
+.gc-shell { fill: #555866; stroke: #343640; stroke-width: 3; }
+.gc-stick-base,.gc-c-base { fill: #34363e; stroke: #858994; stroke-width: 2; }
+.gc-stick-cap { fill: #8b8e97; stroke: #c3c5ca; stroke-width: 2; }
+.gc-c-cap { fill: #d6bd56; stroke: #f0db7b; stroke-width: 2; }
+.gc-a { fill: #66bd45; stroke: #a1e47b; stroke-width: 2; }.gc-a + text { fill: #183116; font-size: 15px; }
+.gc-b { fill: #bd463f; stroke: #e77c6e; stroke-width: 2; }.gc-b + text,.gc-x + text,.gc-y + text { fill: white; font-size: 9px; }
+.gc-x,.gc-y { fill: #747783; stroke: #a7aab1; stroke-width: 1.5; }
+.gc-dpad { fill: #22242b; stroke: #a1a4ac; stroke-width: 1; }.gc-dir { fill: transparent; stroke: transparent; }.gc-dir.is-active { fill: #777b85; }.gc-dpad-mark { fill: #eee; font-size: 11px; pointer-events: none; }
+.gc-start { fill: #292b32; stroke: #92959e; stroke-width: 1; }.gc-start-label,.gc-z-label { fill: #eee; font-size: 6px; }
+.gc-z { fill: #292b32; stroke: #a4a7af; stroke-width: 1; }
+.pro-shell { fill: #272a31; stroke: #111318; stroke-width: 2; }
+.pro-stick-ring { fill: #15171b; stroke: #757983; stroke-width: 2; }
+.pro-stick { fill: #525660; stroke: #9da1aa; stroke-width: 2; }
+.pro-dpad { fill: #111318; stroke: #686c76; stroke-width: 1; }
+.pro-center { fill: #42454d; stroke: #888c95; stroke-width: 1; }.pro-home { fill: #33363e; stroke: #9296a0; stroke-width: 1; }
+.svg-control { cursor: default; transition: filter .1s ease; }
+.svg-control.is-active, [data-input].is-active { filter: brightness(1.65); }
+.joycon-svg .jc-shell { stroke-width: 2; }
+.jc-dpad { fill: #292c34; stroke: #d2d4d8; stroke-width: 1; }
+.jc-left .jc-shell { fill: #ef785f; stroke: #b64e42; }.jc-right .jc-shell { fill: #65b8dc; stroke: #3783aa; }
+.jc-rail { fill: none; stroke: rgba(255,255,255,.8); stroke-width: 2; }
+.jc-stick { fill: #353943; stroke: #bfc4cd; stroke-width: 3; }
+.jc-small { fill: #363943; stroke: #c5c8cf; stroke-width: 1.5; }
+.jc-dir { fill: #343741; stroke: #d2d4d8; stroke-width: 1; }.jc-mark { fill: #fff; font-size: 8px; }
+.svg-control.is-active circle, .svg-control.is-active path, [data-input].is-active { filter: drop-shadow(0 0 3px var(--accent)); }
+.test-controller [data-input].is-active { filter: drop-shadow(0 0 5px var(--accent)) brightness(1.22); }
+
+/* Model accurate vectors for the live input panel. The vector shape carries
+   the physical color; the quiet UI frame keeps the test state easy to read. */
+.device-icon .art { transform: translate(-50%, -50%); width: 82px; height: 42px; display: grid; place-items: center; overflow: visible; }
+.controller-mini { display: flex; align-items: center; justify-content: center; gap: 2px; width: 100%; height: 100%; overflow: hidden; }
+.controller-mini img { display: block; width: 76px; max-height: 42px; object-fit: contain; }
+.controller-mini img.sideways { transform: rotate(90deg); }
+.controller-mini.pair img { width: 20px; max-height: 44px; }
+.touch-surface { width: 110px; flex: none; }
+.touch-surface rect { fill: var(--content-bg); stroke: currentColor; stroke-width: 30; opacity: .6; }
+.touch-surface circle { fill: currentColor; }
+.touch-surface circle[hidden] { display: none; }
+.test-controller { min-height: 0; padding: 8px 4px; }
+.hardware-set { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 200px; }
+.hardware-set.joy-horizontal { height: min(180px, 44vw); min-height: 0; }
+.hardware-set .test-hardware { display: block; width: min(100%, 520px); height: auto; max-height: 330px; overflow: visible; }
+.hardware-set.joy-horizontal .test-hardware[data-model^="joycon"] { height: min(440px, 72vw); max-height: none; transform: rotate(90deg); transform-origin: center; }
+.test-controller.pro { width: auto; height: auto; position: static; flex-shrink: 1; background: transparent; border-radius: 0; }
+.test-controller.pro::before, .test-controller.pro::after { content: none; display: none; }
+.hardware-set:not(.pair) .test-hardware[data-model^="joycon"] { width: auto; height: min(330px, 48vh); }
+.hardware-set.pair { gap: clamp(14px, 5vw, 40px); }
+.hardware-set.pair .test-hardware { width: auto; height: min(330px, 48vh); }
+.test-hardware .control { cursor: default; outline: none; }
+.test-hardware .cap { stroke: #949ba6; stroke-width: 1.5; transition: fill .1s ease, stroke .1s ease, filter .1s ease; }
+.test-hardware .control:hover .cap, .test-hardware .control:focus-visible .cap { stroke: var(--accent); stroke-width: 4; }
+.test-hardware .control.is-pressed .cap { fill: var(--accent); stroke: color-mix(in srgb, var(--accent) 60%, #073d38); stroke-width: 4; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--accent) 60%, transparent)); }
+.test-hardware .control.is-pressed { filter: drop-shadow(0 3px 0 rgba(0,0,0,.24)); }
+.test-controller.joy-pair .hardware-set { min-height: 280px; }
+@media (max-width: 720px) {
+  .test-controller { min-height: 0; }
+  .hardware-set { min-height: 0; }
+  .hardware-set .test-hardware { max-height: 300px; }
+  .hardware-set:not(.pair) .test-hardware[data-model^="joycon"], .hardware-set.pair .test-hardware { height: min(300px, 40vh); }
+  .test-controller.joy-pair .hardware-set { min-height: 0; }
+}
+@media (max-width: 720px) {
+  .sheet:open { grid-template-columns: 1fr; grid-template-rows: auto auto auto auto auto; width: min(540px, calc(100vw - 20px)); }
+  .sheet-header { grid-column: 1; grid-row: 1; padding: 16px 18px 10px; }
+  .test-device-section { grid-column: 1; grid-row: 2; margin: 0 12px; padding: 12px; }
+  .test-controller { min-height: 160px; }
+  .output-heading { grid-column: 1; grid-row: 3; margin: 14px 18px 0; }
+  .input-layout { grid-column: 1; grid-row: 4; grid-template-columns: 1fr; padding: 8px 18px; }
+  .input-pad { max-width: 330px; margin-inline: auto; width: 100%; }
+  .sheet-footer { grid-column: 1; grid-row: 5; }
+  .sheet-footer { position: sticky; bottom: 0; z-index: 2; background: var(--content-bg); }
+}

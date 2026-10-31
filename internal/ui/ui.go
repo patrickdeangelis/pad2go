@@ -65,6 +65,7 @@ func Handler(b Backend, port int, log *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /api/events", s.events)
 	mux.HandleFunc("PUT /api/config", s.saveConfig)
 	mux.HandleFunc("POST /api/restart", s.restart)
+	mux.HandleFunc("POST /api/bluetooth/settings", s.bluetoothSettings)
 	mux.HandleFunc("GET /api/diagnostics", s.diagnostics)
 	mux.HandleFunc("GET /api/players/{n}/input", s.input)
 	mux.HandleFunc("POST /api/players/{n}/rumble", s.rumble)
@@ -133,6 +134,14 @@ func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
 	s.b.Restart()
 	w.WriteHeader(http.StatusAccepted)
+}
+
+func (s *Server) bluetoothSettings(w http.ResponseWriter, r *http.Request) {
+	if err := openBluetoothSettings(); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) diagnostics(w http.ResponseWriter, r *http.Request) {
@@ -239,16 +248,25 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 // inputSample is one test-panel frame. Sticks are -1..1 (+Y up), triggers
 // 0-255 and gyro in deg/s.
 type inputSample struct {
-	Buttons uint16     `json:"buttons"`
-	Pressed []string   `json:"pressed"` // physical buttons, canonical names
-	LX      float64    `json:"lx"`
-	LY      float64    `json:"ly"`
-	RX      float64    `json:"rx"`
-	RY      float64    `json:"ry"`
-	LT      uint8      `json:"lt"`
-	RT      uint8      `json:"rt"`
-	Analog  bool       `json:"analog"`
-	Gyro    [3]float32 `json:"gyro"`
+	Touch            [2]protocol.TouchContact `json:"touch"`
+	MotionCalibrated bool                     `json:"motionCalibrated"`
+	Buttons          uint16                   `json:"buttons"`
+	Pressed          []string                 `json:"pressed"` // physical buttons, canonical names
+	PhysicalKind     uint8                    `json:"physicalKind"`
+	PLX              float64                  `json:"plx"`
+	PLY              float64                  `json:"ply"`
+	PRX              float64                  `json:"prx"`
+	PRY              float64                  `json:"pry"`
+	PLT              uint8                    `json:"plt"`
+	PRT              uint8                    `json:"prt"`
+	LX               float64                  `json:"lx"`
+	LY               float64                  `json:"ly"`
+	RX               float64                  `json:"rx"`
+	RY               float64                  `json:"ry"`
+	LT               uint8                    `json:"lt"`
+	RT               uint8                    `json:"rt"`
+	Analog           bool                     `json:"analog"`
+	Gyro             [3]float32               `json:"gyro"`
 }
 
 // input streams a player's input at up to 30 frames per second, sending only
@@ -284,8 +302,8 @@ func (s *Server) input(w http.ResponseWriter, r *http.Request) {
 			}
 			x := latest.Xbox
 			if send("input", inputSample{
-				Buttons: x.Buttons, Pressed: protocol.ButtonNames(latest.Pressed), LX: axis(x.LX), LY: axis(x.LY), RX: axis(x.RX), RY: axis(x.RY),
-				LT: x.LeftTrigger, RT: x.RightTrigger, Analog: latest.AnalogTriggers, Gyro: latest.Gyro,
+				Buttons: x.Buttons, Pressed: protocol.ButtonNames(latest.Pressed), PhysicalKind: uint8(latest.Kind), PLX: latest.Physical.Left.X, PLY: latest.Physical.Left.Y, PRX: latest.Physical.Right.X, PRY: latest.Physical.Right.Y, LX: axis(x.LX), LY: axis(x.LY), RX: axis(x.RX), RY: axis(x.RY),
+				LT: x.LeftTrigger, RT: x.RightTrigger, PLT: latest.Physical.LeftTrigger, PRT: latest.Physical.RightTrigger, Analog: latest.AnalogTriggers, Gyro: latest.Gyro, Touch: latest.Physical.Touch, MotionCalibrated: latest.Physical.DualSenseMotionCalibrated,
 			}) != nil {
 				return
 			}

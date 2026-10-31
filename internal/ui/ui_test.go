@@ -2,20 +2,26 @@ package ui
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/patrickdeangelis/pad2go/internal/app"
+	"github.com/patrickdeangelis/pad2go/internal/demo"
+	"github.com/patrickdeangelis/pad2go/internal/lifecycle"
 	"github.com/patrickdeangelis/pad2go/internal/mapping"
+	"github.com/patrickdeangelis/pad2go/internal/protocol"
 	"github.com/patrickdeangelis/pad2go/internal/service"
+	"github.com/patrickdeangelis/pad2go/internal/virtualpad"
 )
 
 type fakeBackend struct {
@@ -171,7 +177,7 @@ func TestPlayerRoutes(t *testing.T) {
 
 func TestInputStream(t *testing.T) {
 	srv, b := serve(t)
-	b.samples <- app.Sample{Xbox: mapping.XboxState{Buttons: mapping.XBA, LX: 32767, RightTrigger: 255}, AnalogTriggers: true, Gyro: [3]float32{1, 2, 3}}
+	b.samples <- app.Sample{Xbox: mapping.XboxState{Buttons: mapping.XBA, LX: 32767, RightTrigger: 255}, Physical: protocol.Input{LeftTrigger: 64, RightTrigger: 128}, AnalogTriggers: true, Gyro: [3]float32{1, 2, 3}}
 	resp := do(t, "GET", srv.URL+"/api/players/1/input", "", nil)
 	if resp.Header.Get("Content-Type") != "text/event-stream" {
 		t.Fatalf("content type %q", resp.Header.Get("Content-Type"))
@@ -194,12 +200,72 @@ func TestInputStream(t *testing.T) {
 			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &s); err != nil {
 				t.Fatal(err)
 			}
-			if s.Buttons != mapping.XBA || s.LX != 1 || s.RT != 255 || !s.Analog || s.Gyro != [3]float32{1, 2, 3} {
+			if s.Buttons != mapping.XBA || s.LX != 1 || s.RT != 255 || s.PLT != 64 || s.PRT != 128 || !s.Analog || s.Gyro != [3]float32{1, 2, 3} {
 				t.Fatalf("sample %+v", s)
 			}
 			return
 		case <-timeout:
 			t.Fatal("no input event")
 		}
+	}
+}
+
+func TestDemoDualSenseThroughServiceAndInputStream(t *testing.T) {
+	svc, err := service.New(service.Options{
+		ConfigPath: filepath.Join(t.TempDir(), "config.yaml"), HID: demo.NewHIDBackend(),
+		Radio:       func() (lifecycle.Radio, error) { return nil, errors.New("no demo radio") },
+		OpenBackend: func(string) (virtualpad.Backend, error) { return &virtualpad.Recorder{}, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); _ = svc.Run(ctx) }()
+	defer func() { cancel(); <-done }()
+	deadline := time.Now().Add(3 * time.Second)
+	for len(svc.Snapshot().Players) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(svc.Snapshot().Players) == 0 {
+		t.Fatal("demo DualSense not connected")
+	}
+	srv := httptest.NewUnstartedServer(nil)
+	srv.Start()
+	u, _ := url.Parse(srv.URL)
+	port, _ := strconv.Atoi(u.Port())
+	srv.Config.Handler = Handler(svc, port, nil)
+	defer srv.Close()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/players/1/input", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	frames := make(chan inputSample, 1)
+	go func() {
+		sc := bufio.NewScanner(resp.Body)
+		for sc.Scan() {
+			line := sc.Text()
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			var sample inputSample
+			if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &sample) == nil && sample.MotionCalibrated && sample.Touch[0].Active {
+				select {
+				case frames <- sample:
+				case <-ctx.Done():
+				}
+				return
+			}
+		}
+	}()
+	select {
+	case sample := <-frames:
+		if sample.PhysicalKind != 5 || sample.Touch[0].X >= 1920 || sample.Touch[0].Y >= 1080 {
+			t.Fatalf("demo sample: %+v", sample)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no calibrated demo frame with touch")
 	}
 }

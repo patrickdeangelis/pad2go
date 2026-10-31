@@ -5,6 +5,7 @@ package app
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -48,8 +49,9 @@ type App struct {
 	dsu     *dsu.Server
 	rules   *mapping.Rules
 
-	mu    sync.Mutex
-	slots []*slot
+	mu             sync.Mutex
+	slots          []*slot
+	dualSenseSlots map[string]int
 
 	onChange func()
 }
@@ -65,12 +67,13 @@ func New(cfg *config.Config, backend virtualpad.Backend, dsuServer *dsu.Server, 
 		SLL: cfg.SLLMapping, SRL: cfg.SRLMapping, SLR: cfg.SLRMapping, SRR: cfg.SRRMapping,
 	})
 	rules.PairGyroLeft = cfg.PairGyro == "Left"
+	warnings = append(warnings, rules.SetDualSenseRemaps(cfg.DualSenseRemaps)...)
 	for _, w := range warnings {
 		log.Warn(w)
 	}
 	return &App{
 		cfg: cfg, log: log, backend: backend, dsu: dsuServer, rules: rules,
-		slots: make([]*slot, cfg.MaxControllers),
+		slots: make([]*slot, cfg.MaxControllers), dualSenseSlots: make(map[string]int),
 	}
 }
 
@@ -120,7 +123,15 @@ func (a *App) AddDevice(ctx context.Context, d Device) error {
 		}
 	}
 	if target == nil {
-		idx := slices.Index(a.slots, nil)
+		idx := -1
+		if kind == protocol.KindDualSense {
+			if preferred := a.dualSenseSlots[d.Address()]; preferred > 0 && preferred <= len(a.slots) && a.slots[preferred-1] == nil {
+				idx = preferred - 1
+			}
+		}
+		if idx < 0 {
+			idx = slices.Index(a.slots, nil)
+		}
 		if idx < 0 {
 			a.mu.Unlock()
 			return ErrFull
@@ -155,6 +166,25 @@ func (a *App) AddDevice(ctx context.Context, d Device) error {
 		if err := mm.dev.SetPlayerLEDs(ctx, player); err != nil {
 			a.log.Warn("set player LEDs failed", "addr", mm.dev.Address(), "err", err)
 		}
+		if a.cfg.DualSenseLighting && mm.dev.Kind() == protocol.KindDualSense {
+			if lights, ok := mm.dev.(interface {
+				SetLighting([3]byte, byte, bool) error
+			}); ok {
+				rgb, err := hex.DecodeString(a.cfg.DualSenseColor[1:])
+				if err == nil && len(rgb) == 3 {
+					if err := lights.SetLighting([3]byte{rgb[0], rgb[1], rgb[2]}, byte(a.cfg.DualSenseBrightness), !a.cfg.DualSensePlayerLED); err != nil {
+						a.log.Warn("set DualSense lighting failed", "addr", mm.dev.Address(), "err", err)
+					}
+				}
+			}
+		}
+		if mm.dev.Kind() == protocol.KindDualSense {
+			if triggers, ok := mm.dev.(interface{ SetTriggerPresets(string, string) error }); ok {
+				if err := triggers.SetTriggerPresets(a.cfg.DualSenseTriggerLeft, a.cfg.DualSenseTriggerRight); err != nil {
+					a.log.Warn("set DualSense triggers failed", "addr", mm.dev.Address(), "err", err)
+				}
+			}
+		}
 	}
 	names := make([]string, len(members))
 	for i, mm := range members {
@@ -182,6 +212,9 @@ func (a *App) removeDevice(addr string) bool {
 		m := s.find(addr)
 		if m == nil {
 			continue
+		}
+		if m.dev.Kind() == protocol.KindDualSense {
+			a.dualSenseSlots[addr] = s.player
 		}
 		m.dev.OnInput(nil)
 		m.rumbler.stop()
@@ -220,10 +253,12 @@ func (a *App) Close() {
 }
 
 type member struct {
-	dev     Device
-	rumbler *rumbler
-	battery atomic.Int32 // millivolts, 0 until known
-	pressed uint32       // last raw buttons; guarded by slot.mu
+	dev           Device
+	rumbler       *rumbler
+	battery       atomic.Int32 // millivolts, 0 until known
+	band          atomic.Int32
+	batteryDetail atomic.Int32
+	pressed       uint32 // last raw buttons; guarded by slot.mu
 }
 
 // slot is one player slot: the player pad state, the OS virtual pad it
@@ -285,14 +320,24 @@ func (s *slot) onInput(m *member, in protocol.Input) {
 		}
 		for w := range s.watchers {
 			select {
-			case w <- Sample{Xbox: f.Xbox, Pressed: pressed, Gyro: f.Motion.Gyro, AnalogTriggers: in.AnalogTriggers}:
+			case w <- Sample{Xbox: f.Xbox, Pressed: pressed, Physical: in, Kind: m.dev.Kind(), Gyro: f.Motion.Gyro, AnalogTriggers: in.AnalogTriggers}:
 			default: // slow watcher: drop the sample
 			}
 		}
 	}
 	s.mu.Unlock()
 	if m.dev.Kind() != protocol.KindGameCube { // the GameCube pad reports no battery
-		m.battery.Store(int32(math.Round(in.BatteryVoltage * 1000)))
+		oldDetail := m.batteryDetail.Swap(int32(in.BatteryDetail))
+		if in.BatteryBand != protocol.BatteryUnknown {
+			m.band.Store(int32(in.BatteryBand))
+			m.battery.Store(0)
+		} else {
+			m.band.Store(int32(protocol.BatteryUnknown))
+			m.battery.Store(int32(math.Round(in.BatteryVoltage * 1000)))
+		}
+		if oldDetail != int32(in.BatteryDetail) && m.dev.Kind() == protocol.KindDualSense {
+			a.changed()
+		}
 	}
 	if ok && a.dsu != nil {
 		a.publishMotion(dsuID, s.lowestBattery(), f)
@@ -303,7 +348,11 @@ func (s *slot) onInput(m *member, in protocol.Input) {
 func (s *slot) lowestBattery() protocol.BatteryBand {
 	low := protocol.BatteryUnknown
 	for _, m := range s.snapshot() {
-		if b := protocol.BatteryBandOf(float64(m.battery.Load()) / 1000); b != protocol.BatteryUnknown && (low == protocol.BatteryUnknown || b < low) {
+		b := protocol.BatteryBand(m.band.Load())
+		if b == protocol.BatteryUnknown {
+			b = protocol.BatteryBandOf(float64(m.battery.Load()) / 1000)
+		}
+		if b != protocol.BatteryUnknown && (low == protocol.BatteryUnknown || b < low) {
 			low = b
 		}
 	}
@@ -315,7 +364,7 @@ func (s *slot) lowestBattery() protocol.BatteryBand {
 // controller as itself.
 func (a *App) publishMotion(id Device, battery protocol.BatteryBand, f mapping.Frame) {
 	model := byte(dsu.ModelDS4)
-	if !f.Pair && !id.Kind().ProLike() {
+	if !f.Pair && !id.Kind().ProLike() && id.Kind() != protocol.KindDualSense {
 		model = dsu.ModelJoyCon
 	}
 	motion := f.PlayerMotion
@@ -325,6 +374,7 @@ func (a *App) publishMotion(id Device, battery protocol.BatteryBand, f mapping.F
 		MAC: addressMAC(id.Address()), Model: model,
 		Battery: dsu.BatteryLevel(battery),
 		Buttons: p.Buttons, LX: p.Left.X, LY: p.Left.Y, RX: p.Right.X, RY: p.Right.Y,
+		AnalogTriggers: p.AnalogTriggers, LeftTrigger: p.LeftTrigger, RightTrigger: p.RightTrigger, Touch: p.Touch,
 		Accel: motion.Accel, Gyro: motion.Gyro,
 	})
 }
@@ -451,14 +501,23 @@ type Player struct {
 
 // Member is one controller in a player slot.
 type Member struct {
-	Addr  string
-	Name  string
-	Kind  protocol.Kind
-	Volts float64 // last reported battery voltage; 0 when unknown
+	Addr          string
+	Name          string
+	Kind          protocol.Kind
+	Transport     string
+	Volts         float64 // last reported battery voltage; 0 when unknown
+	Band          protocol.BatteryBand
+	BatteryDetail uint16
+	Diagnostics   *protocol.HIDDiagnostics
 }
 
 // Battery is the member's battery band.
-func (m Member) Battery() protocol.BatteryBand { return protocol.BatteryBandOf(m.Volts) }
+func (m Member) Battery() protocol.BatteryBand {
+	if m.Band != protocol.BatteryUnknown {
+		return m.Band
+	}
+	return protocol.BatteryBandOf(m.Volts)
+}
 
 // Players returns the occupied player slots in order.
 func (a *App) Players() []Player {
@@ -471,8 +530,23 @@ func (a *App) Players() []Player {
 		}
 		p := Player{Number: s.player}
 		for _, m := range s.snapshot() {
+			transport := "Bluetooth LE"
+			if m.dev.Kind() == protocol.KindDualSense {
+				transport = "USB"
+			}
+			if named, ok := m.dev.(interface{ TransportName() string }); ok {
+				transport = named.TransportName()
+			}
+			var diagnostics *protocol.HIDDiagnostics
+			if dev, ok := m.dev.(interface {
+				Diagnostics() protocol.HIDDiagnostics
+			}); ok {
+				d := dev.Diagnostics()
+				diagnostics = &d
+			}
 			p.Members = append(p.Members, Member{
-				Addr: m.dev.Address(), Name: m.dev.Name(), Kind: m.dev.Kind(), Volts: float64(m.battery.Load()) / 1000,
+				Addr: m.dev.Address(), Name: m.dev.Name(), Kind: m.dev.Kind(), Transport: transport, Volts: float64(m.battery.Load()) / 1000, Band: protocol.BatteryBand(m.band.Load()), BatteryDetail: uint16(m.batteryDetail.Load()),
+				Diagnostics: diagnostics,
 			})
 		}
 		out = append(out, p)
@@ -483,6 +557,10 @@ func (a *App) Players() []Player {
 // Sample is what one input report did to a player slot, for input tests.
 type Sample struct {
 	Xbox mapping.XboxState
+	// Physical is the reporting controller's calibrated input before hold-mode
+	// rotation or Xbox mapping, for its model-specific drawing in the test UI.
+	Physical protocol.Input
+	Kind     protocol.Kind
 	// Pressed is the physical buttons held across the slot's controllers
 	// (protocol.Btn* bits), before remapping.
 	Pressed        uint32

@@ -131,6 +131,18 @@ func TestPadDataFlow(t *testing.T) {
 	}
 }
 
+func TestPadDataAnalogTriggersAndTouch(t *testing.T) {
+	p := Pad{AnalogTriggers: true, LeftTrigger: 17, RightTrigger: 200, Buttons: protocol.BtnPSCClick,
+		Touch: [2]protocol.TouchContact{{Active: true, ID: 7, X: 1023, Y: 513}, {ID: 9}}}
+	data := encodePadData(0, 1, p, time.Unix(0, 0))
+	if data[21]&3 != 3 || data[23] != 1 || data[38] != 200 || data[39] != 17 {
+		t.Fatalf("buttons/triggers: %x", data[20:40])
+	}
+	if data[40] != 1 || data[41] != 7 || binary.LittleEndian.Uint16(data[42:]) != 1023 || binary.LittleEndian.Uint16(data[44:]) != 513 || data[46] != 0 || data[47] != 9 {
+		t.Fatalf("touch: %x", data[40:52])
+	}
+}
+
 func TestSlotsReuseMAC(t *testing.T) {
 	s, _ := setup(t)
 	a := Pad{MAC: [6]byte{1}}

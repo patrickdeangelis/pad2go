@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -22,6 +23,7 @@ import (
 	"github.com/patrickdeangelis/pad2go/internal/ble"
 	"github.com/patrickdeangelis/pad2go/internal/config"
 	"github.com/patrickdeangelis/pad2go/internal/demo"
+	"github.com/patrickdeangelis/pad2go/internal/hid"
 	"github.com/patrickdeangelis/pad2go/internal/lifecycle"
 	"github.com/patrickdeangelis/pad2go/internal/protocol"
 	"github.com/patrickdeangelis/pad2go/internal/service"
@@ -37,6 +39,7 @@ const usage = `Usage: pad2go [flags] [command]
 Commands:
   run       connect controllers and open the Pad2Go window (default)
   scan      list nearby Switch 2 controllers without connecting
+  dump-hid  record DualSense USB or Bluetooth input reports
   init      write a starter config file
   check     exit 0 if the virtual gamepad driver (ViGEmBus, uinput) works
   version   print the version
@@ -86,6 +89,11 @@ func main() {
 		err = run(ctx, cfgPath, log, runOptions{headless: *headless, open: *open, demo: *demo})
 	case "scan":
 		err = scan(ctx)
+	case "dump-hid":
+		code := dumpHID(fs.Args()[1:], hid.DefaultBackend(), os.Stdout, os.Stderr)
+		if code != 0 {
+			os.Exit(code)
+		}
 	case "init":
 		err = writeConfig(cfgPath)
 	case "check":
@@ -168,6 +176,79 @@ func scan(ctx context.Context) error {
 	return err
 }
 
+var dumpHIDDuration = 15 * time.Second
+
+func dumpHID(args []string, backend hid.Backend, stdout, stderr io.Writer) int {
+	path := ""
+	if len(args) > 0 {
+		path = args[0]
+	} else {
+		path = fmt.Sprintf("dualsense-%d.hex", time.Now().Unix())
+	}
+	infos, err := backend.List()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	var transport interface {
+		Read([]byte) (int, error)
+		Close() error
+	}
+	for _, info := range infos {
+		if info.VendorID == 0x054C && info.ProductID == 0x0CE6 {
+			transport, err = backend.Open(info)
+			if err == nil {
+				// The pairing-info feature request also puts a Bluetooth
+				// DualSense into its full input-report mode.
+				if info.Bluetooth {
+					if identity, ok := transport.(interface{ MAC() string }); ok {
+						_ = identity.MAC()
+					}
+				}
+				break
+			}
+		}
+	}
+	if transport == nil {
+		fmt.Fprintln(stderr, "no DualSense found")
+		return 1
+	}
+	defer transport.Close()
+	f, err := os.Create(path)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer f.Close()
+	start := time.Now()
+	deadline := time.NewTimer(dumpHIDDuration)
+	defer deadline.Stop()
+	count := 0
+	for {
+		select {
+		case <-deadline.C:
+			fmt.Fprintf(stdout, "recorded %d reports to %s\n", count, path)
+			return 0
+		default:
+		}
+		// 128 bytes holds a full Bluetooth report (78) as well as a USB one (64).
+		buf := make([]byte, 128)
+		n, e := transport.Read(buf)
+		if e != nil {
+			fmt.Fprintln(stderr, e)
+			return 1
+		}
+		if n < 0 || n > len(buf) {
+			continue
+		}
+		if _, e = fmt.Fprintf(f, "%d %s\n", time.Since(start).Milliseconds(), hex.EncodeToString(buf[:n])); e != nil {
+			fmt.Fprintln(stderr, e)
+			return 1
+		}
+		count++
+	}
+}
+
 type runOptions struct {
 	headless, open, demo bool
 }
@@ -182,6 +263,7 @@ func run(ctx context.Context, cfgPath string, log *slog.Logger, o runOptions) er
 		log.Info("demo mode: simulated controllers, no Bluetooth or virtual gamepads")
 		opt.Radio = func() (lifecycle.Radio, error) { return demo.NewRadio(), nil }
 		opt.OpenBackend = func(string) (virtualpad.Backend, error) { return virtualpad.Null{}, nil }
+		opt.HID = demo.NewHIDBackend()
 	}
 	svc, err := service.New(opt)
 	if err != nil {

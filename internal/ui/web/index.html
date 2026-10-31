@@ -33,11 +33,15 @@
           <header class="page-header"><p id="controllers-subtitle">Prontos para o próximo jogo.</p><button id="connect" type="button" class="push">Conectar controle</button></header>
           <p id="platform-notice" class="note" hidden>No macOS não há controle Xbox virtual: o Pad2Go envia botões, analógicos e movimento para emuladores (como o Eden) via DSU.</p>
 
-          <div id="discovery" class="group discovery" hidden aria-labelledby="discovery-title">
+          <div id="discovery" class="group discovery" hidden aria-labelledby="discovery-choice">
+            <div class="row">
+              <div class="row-label"><span id="discovery-choice">Qual controle você quer conectar?</span><small>Escolha o tipo para ver os passos corretos.</small></div>
+              <div class="row-control"><button type="button" class="push" data-connect-kind="nintendo">Nintendo</button><button type="button" class="push" data-connect-kind="dualsense">DualSense</button><button id="hide-discovery" type="button" class="push">Fechar</button></div>
+            </div>
+            <div id="nintendo-discovery" hidden>
             <div class="row">
               <span class="spinner" id="discovery-spinner" aria-hidden="true"></span>
               <div class="row-label"><span id="discovery-title">Conexão automática</span><small id="discovery-status" role="status" aria-live="polite"></small></div>
-              <div class="row-control"><button id="hide-discovery" type="button" class="push">Fechar</button></div>
             </div>
             <div class="row"><ol id="discovery-steps" class="steps" aria-label="Etapas de conexão"></ol></div>
             <div class="row howto" id="howto">
@@ -59,11 +63,25 @@
               </div>
             </div>
             <div class="row" id="foreign-action" hidden><div class="row-label"><span>Controle pareado com outro PC</span><small>A preferência será salva e as conexões serão reiniciadas.</small></div><div class="row-control"><button id="accept-foreign" type="button" class="push">Aceitar mesmo assim</button></div></div>
+            </div>
+            <div id="dualsense-discovery" class="row howto" hidden>
+              <div class="row-label">
+                <span>Conectar DualSense</span>
+                <ol>
+                  <li>Desconecte o cabo USB e desligue o controle, se estiver ligado.</li>
+                  <li>Segure <strong>PS + Criar</strong> até as luzes começarem a piscar.</li>
+                  <li>No Bluetooth do Windows, escolha <strong>Adicionar dispositivo → Bluetooth → Wireless Controller</strong> e confirme o pareamento.</li>
+                  <li>Volte ao Pad2Go. O controle conectado aparecerá na lista de jogadores.</li>
+                </ol>
+                <small>Um DualSense já pareado pode ser ligado com o botão PS. Por USB, conecte o cabo diretamente ao PC.</small>
+              </div>
+              <div class="row-control"><button id="open-bluetooth-settings" type="button" class="push">Abrir Bluetooth do Windows</button></div>
+            </div>
           </div>
 
           <h2 class="group-title"><span>Jogadores</span><span id="player-count"></span></h2>
           <div id="device-list" class="group"></div>
-          <p class="group-footer">Controle novo ou que estava no Switch 2? Segure SYNC até as luzes correrem. <button id="show-howto" type="button" class="link">Como conectar</button></p>
+          <p class="group-footer">Precisa parear um controle? <button id="show-howto" type="button" class="link">Como conectar</button></p>
 
           <h2 class="group-title">Conexão</h2>
           <div class="group">
@@ -107,12 +125,29 @@
             <div class="row"><div class="row-label"><label for="dz-joycon">Zona morta · Joy-Con</label></div><div class="row-control"><input id="dz-joycon" type="number" min="0" max="50" data-deadzone="joycon"><span class="unit">%</span></div></div>
             <div class="row"><div class="row-label"><label for="dz-pro">Zona morta · Pro Controller</label></div><div class="row-control"><input id="dz-pro" type="number" min="0" max="50" data-deadzone="pro"><span class="unit">%</span></div></div>
             <div class="row"><div class="row-label"><label for="dz-gc">Zona morta · GameCube</label></div><div class="row-control"><input id="dz-gc" type="number" min="0" max="50" data-deadzone="gc"><span class="unit">%</span></div></div>
+            <div class="row"><div class="row-label"><label for="dz-dualsense">Zona morta · DualSense</label></div><div class="row-control"><input id="dz-dualsense" type="number" min="0" max="50" data-deadzone="dualsense"><span class="unit">%</span></div></div>
             <div class="row"><div class="row-label"><label for="trigger">Gatilhos · GameCube</label></div><div class="row-control"><select id="trigger" data-config="trigger"><option value="100% at Bump">Máximo no clique</option><option value="100% at Max">Máximo no fim do curso</option><option value="Hair Trigger">Toque leve</option></select></div></div>
           </div>
 
           <h2 class="group-title">Botões extras</h2>
           <div id="remaps" class="group"></div>
           <p class="group-footer">Redirecione botões extras para outro botão do controle.</p>
+          <h2 class="group-title">Botões do DualSense</h2>
+          <div id="dualsense-remaps" class="group"></div>
+          <p class="group-footer">Escolha a ação no controle Xbox virtual. L2/R2 mapeados para botões acionam a partir de 50% do curso. As alterações entram em vigor ao reiniciar.</p>
+          <h2 class="group-title">Iluminação do DualSense</h2>
+          <div class="group">
+            <label class="row"><div class="row-label"><span>Personalizar iluminação</span><small>Aplicada ao reconectar após reiniciar as conexões</small></div><div class="row-control"><input type="checkbox" class="switch" data-config="dualSenseLighting"></div></label>
+            <div class="row"><div class="row-label"><label for="ds-color">Cor da barra</label></div><div class="row-control"><input id="ds-color" type="color" data-config="dualSenseColor"></div></div>
+            <div class="row"><div class="row-label"><label for="ds-brightness">Brilho da barra</label></div><div class="row-control"><input id="ds-brightness" type="number" min="0" max="100" data-config="dualSenseBrightness"><span class="unit">%</span></div></div>
+            <label class="row"><div class="row-label"><span>LEDs de jogador</span></div><div class="row-control"><input type="checkbox" class="switch" data-config="dualSensePlayerLED"></div></label>
+          </div>
+          <h2 class="group-title">Gatilhos adaptativos do DualSense</h2>
+          <div class="group">
+            <div class="row"><div class="row-label"><label for="ds-trigger-l">L2</label></div><div class="row-control"><select id="ds-trigger-l" data-config="dualSenseTriggerLeft"><option value="off">Desligado</option><option value="resistance">Resistência constante</option><option value="barrier">Barreira</option></select></div></div>
+            <div class="row"><div class="row-label"><label for="ds-trigger-r">R2</label></div><div class="row-control"><select id="ds-trigger-r" data-config="dualSenseTriggerRight"><option value="off">Desligado</option><option value="resistance">Resistência constante</option><option value="barrier">Barreira</option></select></div></div>
+          </div>
+          <p class="group-footer">Efeitos manuais aplicados após reiniciar as conexões.</p>
 
           <h2 class="group-title">Conexão</h2>
           <div class="group">
@@ -135,7 +170,14 @@
   </div>
 
   <dialog id="test-dialog" class="sheet" aria-labelledby="test-title">
-    <header class="sheet-header"><div><h2 id="test-title">Teste de entrada</h2><p>Aperte os botões no controle. Você vê o que é enviado aos jogos.</p></div></header>
+    <header class="sheet-header"><div><h2 id="test-title">Teste de entrada</h2><p>Veja os botões físicos e o que chega ao controle virtual.</p></div></header>
+    <section class="test-device-section" aria-label="Controle conectado">
+      <div class="test-device-heading"><strong id="test-device-name">Controle</strong><span>Entrada física</span></div>
+      <div id="test-shoulders" class="test-shoulders"></div>
+      <div id="test-controller" class="test-controller"></div>
+      <p id="test-mapping" class="test-mapping"></p>
+    </section>
+    <div class="output-heading">Saída virtual · Xbox 360</div>
     <div class="input-layout">
       <div class="input-pad" role="img" aria-label="Visualização das entradas recebidas">
         <div class="input-triggers"><span id="pad-l" class="pad-key wide">LB</span><span class="input-center"><span id="pad-back" class="pad-key wide" title="Back (− e Captura)">Back</span><span id="pad-guide" class="pad-key" title="Guide (Home)">⌂</span><span id="pad-start" class="pad-key wide" title="Start (+)">Start</span></span><span id="pad-r" class="pad-key wide">RB</span></div>
@@ -147,6 +189,7 @@
         <div class="row"><div class="row-label"><span>Gatilho LT</span></div><div class="row-control meter"><progress id="trigger-l" max="100" value="0"></progress><output id="trigger-l-value" class="value">0%</output></div></div>
         <div class="row"><div class="row-label"><span>Gatilho RT</span></div><div class="row-control meter"><progress id="trigger-r" max="100" value="0"></progress><output id="trigger-r-value" class="value">0%</output></div></div>
         <div class="row"><div class="row-label"><span>Giroscópio (°/s)</span></div><output id="gyro-values" class="value">0,0 · 0,0 · 0,0</output></div>
+        <div class="row" id="touch-test" hidden><div class="row-label"><span>Touchpad</span><small>Até dois contatos simultâneos</small><output id="touch-values" class="value">Sem contato</output></div><svg class="touch-surface" viewBox="0 0 1920 1080" role="img" aria-label="Posição dos contatos no touchpad"><rect width="1920" height="1080" rx="100"/><circle id="touch-point-0" r="75" hidden/><circle id="touch-point-1" r="75" hidden/></svg></div>
         <div class="row"><div class="row-label"><span>Botões no controle</span><small>O que você aperta, antes de virar Xbox</small></div><output id="pressed-values" class="value">—</output></div>
       </div>
     </div>

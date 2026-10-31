@@ -79,11 +79,54 @@ type RemapSettings struct {
 // Rules is the compiled layout and remap configuration shared by every
 // player pad.
 type Rules struct {
-	byLabel bool
-	remaps  []remap
+	byLabel      bool
+	remaps       []remap
+	dualRemaps   []remap
+	dualTriggers [2]string
 	// PairGyroLeft makes a Joy-Con pair's motion come from the left
 	// Joy-Con instead of the right.
 	PairGyroLeft bool
+}
+
+// SetDualSenseRemaps sets per-button positional remaps independently of Nintendo settings.
+func (r *Rules) SetDualSenseRemaps(settings map[string]string) []string {
+	sources := map[string]uint32{"cross": protocol.BtnB, "circle": protocol.BtnA, "square": protocol.BtnY, "triangle": protocol.BtnX, "l1": protocol.BtnL, "r1": protocol.BtnR, "l3": protocol.BtnLStick, "r3": protocol.BtnRStick, "create": protocol.BtnMinus, "options": protocol.BtnPlus, "ps": protocol.BtnHome, "touch": protocol.BtnPSCClick, "up": protocol.BtnUp, "down": protocol.BtnDown, "left": protocol.BtnLeft, "right": protocol.BtnRight}
+	var warnings []string
+	for key, target := range settings {
+		if key == "l2" || key == "r2" {
+			index := 0
+			if key == "r2" {
+				index = 1
+			}
+			if target != "" && target != "Default" && target != "None" {
+				if _, ok := protocol.ButtonsByName[target]; !ok {
+					warnings = append(warnings, fmt.Sprintf("DualSense %s: unsupported mapping %q", key, target))
+					continue
+				}
+			}
+			r.dualTriggers[index] = target
+			continue
+		}
+		src, ok := sources[key]
+		if !ok {
+			warnings = append(warnings, fmt.Sprintf("unknown DualSense button %q", key))
+			continue
+		}
+		if target == "" || target == "Default" {
+			continue
+		}
+		if target == "None" {
+			r.dualRemaps = append(r.dualRemaps, remap{src, 0})
+			continue
+		}
+		dst, ok := protocol.ButtonsByName[target]
+		if !ok {
+			warnings = append(warnings, fmt.Sprintf("DualSense %s: unsupported mapping %q", key, target))
+			continue
+		}
+		r.dualRemaps = append(r.dualRemaps, remap{src, dst})
+	}
+	return warnings
 }
 
 type remap struct {
@@ -194,9 +237,53 @@ func (p *PlayerPad) Update(id string, in protocol.Input) (f Frame, ok bool) {
 		return Frame{}, false
 	}
 
-	kept, extra := p.rules.remap(in.Buttons)
+	// DualSense remaps are independent of Nintendo mappings and use positional layout.
+	dual := m.kind == protocol.KindDualSense
+	var kept, extra uint32
+	if dual {
+		kept = in.Buttons
+		for _, rm := range p.rules.dualRemaps {
+			if in.Buttons&rm.src != 0 {
+				kept &^= rm.src
+				extra |= rm.dst
+			}
+		}
+	} else {
+		kept, extra = p.rules.remap(in.Buttons)
+	}
 	st := in
 	st.Buttons = kept
+	if dual {
+		values := [2]uint8{in.LeftTrigger, in.RightTrigger}
+		if target := p.rules.dualTriggers[0]; target != "" && target != "Default" {
+			st.LeftTrigger = 0
+		}
+		if target := p.rules.dualTriggers[1]; target != "" && target != "Default" {
+			st.RightTrigger = 0
+		}
+		for i, target := range p.rules.dualTriggers {
+			switch target {
+			case "", "Default", "None":
+			case "ZL":
+				st.LeftTrigger = max(st.LeftTrigger, values[i])
+			case "ZR":
+				st.RightTrigger = max(st.RightTrigger, values[i])
+			default:
+				if values[i] >= 128 {
+					extra |= protocol.ButtonsByName[target]
+				}
+			}
+		}
+		// A digital button mapped to an Xbox trigger presses it fully.
+		if extra&protocol.BtnZL != 0 {
+			st.LeftTrigger = 255
+			extra &^= protocol.BtnZL
+		}
+		if extra&protocol.BtnZR != 0 {
+			st.RightTrigger = 255
+			extra &^= protocol.BtnZR
+		}
+	}
 	alone := len(p.members) == 1
 	sideways := alone && m.sideways && m.kind.IsJoyCon()
 	if alone && m.kind.IsJoyCon() {
@@ -206,6 +293,15 @@ func (p *PlayerPad) Update(id string, in protocol.Input) (f Frame, ok bool) {
 	st.Buttons |= extra
 	m.last = st
 	m.motion = motion(in.Accel, in.Gyro, m.kind, sideways)
+	if dual {
+		m.motion = Motion{}
+		if in.DualSenseMotionCalibrated {
+			// DSU uses the DS4Windows convention: negate acceleration and
+			// preserve pitch while inverting yaw and roll.
+			a, g := in.DualSenseAccelG, in.DualSenseGyroDPS
+			m.motion = Motion{Accel: [3]float32{-a[0], -a[1], -a[2]}, Gyro: [3]float32{g[0], -g[1], -g[2]}}
+		}
+	}
 	m.reported = true
 
 	out, playerMotion := st, m.motion
@@ -229,7 +325,7 @@ func (p *PlayerPad) Update(id string, in protocol.Input) (f Frame, ok bool) {
 		out, playerMotion = merge(left, right), source.motion
 	}
 	return Frame{
-		Xbox:         toXbox(out, p.rules.byLabel, alone && m.kind == protocol.KindGameCube),
+		Xbox:         toXbox(out, p.rules.byLabel && !dual, alone && m.kind == protocol.KindGameCube),
 		Controller:   st,
 		Motion:       m.motion,
 		Player:       out,

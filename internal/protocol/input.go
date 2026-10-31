@@ -130,6 +130,22 @@ func (c StickCalibration) Apply(rawX, rawY int, gain, deadzone float64) (float64
 // Stick is a normalized stick position in [-1, 1]; +Y is up.
 type Stick struct{ X, Y float64 }
 
+// TouchContact is one DualSense touchpad contact in its native 1920x1080 space.
+type TouchContact struct {
+	Active bool   `json:"active"`
+	ID     byte   `json:"id"`
+	X      uint16 `json:"x"`
+	Y      uint16 `json:"y"`
+}
+
+// HIDDiagnostics counts reports received by the application, not radio RSSI or packet loss.
+type HIDDiagnostics struct {
+	Valid           uint64 `json:"valid"`
+	Invalid         uint64 `json:"invalid"`
+	LastValidMillis int64  `json:"lastValidMillis"`
+	Calibrated      bool   `json:"calibrated"`
+}
+
 // Input is one calibrated input sample: what a controller reports after stick
 // calibration, gain and deadzone are applied. IMU values stay raw.
 type Input struct {
@@ -140,6 +156,17 @@ type Input struct {
 	AnalogTriggers            bool
 	Accel, Gyro               [3]int16
 	BatteryVoltage            float64
+	// BatteryBand is set by controllers that report a charge level rather than
+	// a voltage (PlayStation); BatteryUnknown means use BatteryVoltage.
+	BatteryBand BatteryBand
+	// BatteryDetail is the raw DualSense status byte plus one; zero means unavailable.
+	BatteryDetail uint16
+	// DualSenseGyroRaw and DualSenseAccelRaw are uncalibrated device-frame samples.
+	// They must not be passed through the Nintendo motion conversion.
+	DualSenseGyroRaw, DualSenseAccelRaw [3]int16
+	DualSenseGyroDPS, DualSenseAccelG   [3]float32
+	DualSenseMotionCalibrated           bool
+	Touch                               [2]TouchContact
 }
 
 // GameCube trigger modes (config key gc_trigger_mode).

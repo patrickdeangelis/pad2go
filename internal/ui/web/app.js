@@ -7,7 +7,7 @@
   const el = id => document.getElementById(id);
   const all = query => [...document.querySelectorAll(query)];
   const prefsKey = 'pad2go-ui-v2';
-  const ui = { view: 'controllers', detail: null, testing: null, discoveryOpen: false, notifications: true };
+  const ui = { view: 'controllers', detail: null, testing: null, discoveryOpen: false, discoveryKind: null, notifications: true };
   let snap = null;
   let draft = null;
   let inputStream = null;
@@ -70,19 +70,34 @@
   }
 
   // --- Players --------------------------------------------------------------
-  function joy(right = false) { return `<div class="joy ${right ? 'right' : ''}"><span class="stick"></span>${[1, 2, 3, 4].map(i => `<span class="hw-key k${i}"></span>`).join('')}</div>`; }
+  const controllerAsset = kind => ({ ds: 'dualsense', left: 'joycon-l', right: 'joycon-r', pro: 'pro', gc: 'gamecube' }[kind] || 'pro');
+  const holdMode = member => draft?.holds?.[member?.addr] || draft?.hold || snap?.config?.holds?.[member?.addr] || snap?.config?.hold || 'Vertical';
   function art(members) {
-    if (members.length === 2) return joy() + joy(true);
-    const kind = members[0].kind;
-    if (kind === 'left' || kind === 'right') return joy(kind === 'right');
-    return `<div class="pro ${kind === 'gc' ? 'gamecube' : ''}"><span class="stick"></span><span class="stick second"></span>${[1, 2, 3, 4].map(i => `<span class="hw-key k${i}"></span>`).join('')}</div>`;
+    const kinds = members.length === 2 ? ['left', 'right'] : [members[0]?.kind || 'pro'];
+    const horizontal = members.length === 1 && ['left', 'right'].includes(kinds[0]) && holdMode(members[0]) === 'Horizontal';
+    return `<div class="controller-mini ${members.length === 2 ? 'pair' : ''}">${kinds.map(kind => `<img class="${horizontal ? 'sideways' : ''}" src="assets/controllers/${controllerAsset(kind)}.svg" alt="" aria-hidden="true">`).join('')}</div>`;
   }
   const ledPatterns = [0, 1, 3, 7, 15, 9, 5, 13, 6]; // protocol.LEDPattern
-  const leds = player => `<span class="leds" role="img" aria-label="LEDs do jogador ${player}">${[0, 1, 2, 3].map(bit => `<span class="${ledPatterns[player] & (1 << bit) ? 'lit' : ''}"></span>`).join('')}</span>`;
+  const leds = (player, kind) => {
+    const dualSense = kind === 'ds';
+    const pattern = dualSense ? [0, 0x04, 0x0a, 0x15, 0x1b, 0x1f, 0x1f, 0x1f, 0x1f][player] : ledPatterns[player];
+    const bits = dualSense ? [0, 1, 2, 3, 4] : [0, 1, 2, 3];
+    return `<span class="leds${dualSense ? ' dualsense-leds' : ''}" role="img" aria-label="LEDs do jogador ${player}">${bits.map(bit => `<span class="${pattern & (1 << bit) ? 'lit' : ''}"></span>`).join('')}</span>`;
+  };
   const lowBattery = member => member.battery === 'low';
   const batteryLabels = { high: 'Alta', medium: 'Média', low: 'Baixa' };
   const batteryIcons = { high: 'battery', medium: 'battery-medium', low: 'battery-low' };
+  const batteryText = m => m.batteryPercent != null ? `${m.batteryStatus === 'full' ? '' : '≈ '}${m.batteryPercent}%${m.batteryStatus === 'charging' ? ' · Carregando' : m.batteryStatus === 'full' ? ' · Carregada' : ''}` : m.batteryStatus === 'error' ? 'Falha na bateria' : (batteryLabels[m.battery] || 'Desconhecida');
   const volts = v => `${v.toFixed(2).replace('.', ',')} V`;
+  const reportStatus = d => !d ? '' : d.lastValidMillis < 0 ? 'Aguardando relatórios' : d.lastValidMillis > 2000 ? 'Sem relatórios recentes' : d.invalid > 0 ? 'Relatórios inválidos detectados' : 'Recebendo relatórios';
+  const diagnosticText = d => `Relatórios: ${d.valid} válidos · ${d.invalid} inválidos · ${d.lastValidMillis < 0 ? 'aguardando entrada' : `último há ${(d.lastValidMillis / 1000).toFixed(1)} s`} · sensores ${d.calibrated ? 'calibrados' : 'sem calibração'}`;
+  function updateDeviceDiagnostics(players) {
+    all('[data-report-diagnostics]').forEach(node => {
+      const [player, member] = node.dataset.reportDiagnostics.split(':').map(Number);
+      const diagnostics = players.find(p => p.player === player)?.members[member]?.diagnostics;
+      if (diagnostics) node.textContent = diagnosticText(diagnostics);
+    });
+  }
 
   let devicesKey = '';
   function renderDevices() {
@@ -94,23 +109,26 @@
     if (ui.testing !== null && !players.some(p => p.player === ui.testing)) closeTest();
     if (ui.detail !== null && !players.some(p => p.player === ui.detail)) ui.detail = null;
     // Voltage jitters between snapshots: only the open details show it.
-    const shown = players.map(p => ({ ...p, members: p.members.map(m => ({ ...m, volts: ui.detail === p.player ? m.volts.toFixed(2) : 0 })) }));
+    const shown = players.map(p => ({ ...p, members: p.members.map(m => ({ ...m, volts: ui.detail === p.player ? m.volts.toFixed(2) : 0, diagnostics: m.diagnostics ? { status: reportStatus(m.diagnostics), calibrated: m.diagnostics.calibrated } : null })) }));
     const key = JSON.stringify([shown, ui.detail, snap.config.layout, draft.hold, draft.holds]);
-    if (key === devicesKey) return;
+    if (key === devicesKey) { updateDeviceDiagnostics(players); return; }
     devicesKey = key;
     el('device-list').innerHTML = players.length ? players.map(slot => {
       const pair = slot.members.length === 2;
       const low = slot.members.some(lowBattery);
+      const warning = slot.members.find(m => m.diagnostics && (m.diagnostics.lastValidMillis > 2000 || m.diagnostics.invalid > 0 || !m.diagnostics.calibrated));
+      const status = low ? 'Bateria baixa' : warning ? (warning.diagnostics.lastValidMillis > 2000 || warning.diagnostics.invalid > 0 ? reportStatus(warning.diagnostics) : 'Calibração indisponível') : 'Conectado';
       const single = slot.members.length === 1 && ['left', 'right'].includes(slot.members[0].kind);
-      const batteries = slot.members.filter(m => m.battery).map(m => `<span class="battery ${lowBattery(m) ? 'low' : ''}" title="Bateria ${batteryLabels[m.battery].toLowerCase()}">${icon(batteryIcons[m.battery])}${pair ? (m.kind === 'left' ? 'L ' : 'R ') : ''}${batteryLabels[m.battery]}</span>`).join('');
+      const batteries = slot.members.filter(m => m.battery || m.batteryStatus).map(m => `<span class="battery ${lowBattery(m) || m.batteryStatus === 'error' ? 'low' : ''}" title="${m.batteryPercent != null && m.batteryStatus !== 'full' ? 'Estimativa em intervalos de 10%' : 'Bateria'}">${icon(batteryIcons[m.battery] || 'warn')}${pair ? (m.kind === 'left' ? 'L ' : 'R ') : ''}${batteryText(m)}</span>`).join('');
       const open = ui.detail === slot.player;
       return `<div class="row device-row" data-player="${slot.player}">
           <div class="device-icon" aria-hidden="true"><div class="art">${art(slot.members)}</div></div>
-          <div class="row-label"><span>Jogador ${slot.player} · ${escape(slot.name)}</span><small class="device-meta"><span class="status ${low ? 'warning' : 'on'}">${low ? 'Bateria baixa' : 'Conectado'}</span>${batteries}${leds(slot.player)}</small></div>
+          <div class="row-label"><span>Jogador ${slot.player} · ${escape(slot.name)}</span><small class="device-meta"><span class="status ${low || warning ? 'warning' : 'on'}">${status}</span>${batteries}${leds(slot.player, slot.members[0]?.kind)}</small></div>
           <div class="row-control"><button type="button" class="push" data-test="${slot.player}">Testar</button><button type="button" class="info-button" data-detail="${slot.player}" aria-expanded="${open}" aria-label="Detalhes do jogador ${slot.player}" title="Detalhes">${icon('info')}</button></div>
         </div>${open ? `<div class="device-details">
-          <span>Bluetooth LE · ${slot.members.map(m => escape(m.addr)).join(' · ')}</span>
-          ${slot.members.some(m => m.battery) ? `<span>Bateria estimada pela tensão: ${slot.members.filter(m => m.battery).map(m => `${pair ? (m.kind === 'left' ? 'L ' : 'R ') : ''}${volts(m.volts)}`).join(' · ')}</span>` : ''}
+          <span>${slot.members.map(m => `${escape(m.transport || (m.kind === 'ds' ? 'USB' : 'Bluetooth LE'))} · ${escape(m.addr)}`).join(' · ')}</span>
+          ${slot.members.map((m, i) => m.diagnostics ? `<span data-report-diagnostics="${slot.player}:${i}">${diagnosticText(m.diagnostics)}</span>` : '').join('')}
+          ${slot.members.some(m => m.battery && m.volts > 0) ? `<span>Bateria estimada pela tensão: ${slot.members.filter(m => m.battery && m.volts > 0).map(m => `${pair ? (m.kind === 'left' ? 'L ' : 'R ') : ''}${volts(m.volts)}`).join(' · ')}</span>` : ''}
           ${single ? `<label class="detail-line">Posição deste Joy-Con<select data-device-hold="${escape(slot.members[0].addr)}"><option value="Vertical">Vertical</option><option value="Horizontal">Horizontal</option></select></label>` : ''}
           <button type="button" class="danger-link" data-disconnect="${slot.player}">Desconectar ${pair ? 'par' : 'controle'}</button>
         </div>` : ''}`;
@@ -121,11 +139,11 @@
   function renderDiscovery() {
     const d = snap.discovery;
     // A controller bonded to the console needs SYNC: show how, once per failure.
-    if (d.bonded && !ui.bondedShown) ui.discoveryOpen = true;
+    if (d.bonded && !ui.bondedShown && !ui.discoveryOpen) { ui.discoveryOpen = true; ui.discoveryKind = 'nintendo'; }
     ui.bondedShown = Boolean(d.bonded);
     // Close the setup once a controller is ready, unless a lone Joy-Con is
     // still waiting for its partner to join the same player.
-    if (d.step === 4 && ui.lastStep !== 4 && ui.discoveryOpen) {
+    if (d.step === 4 && ui.lastStep !== 4 && ui.discoveryOpen && ui.discoveryKind === 'nintendo') {
       clearTimeout(ui.closeTimer);
       ui.closeTimer = setTimeout(() => {
         const waitingPartner = snap.config.combine && snap.players.some(p => p.members.length === 1 && ['left', 'right'].includes(p.members[0].kind));
@@ -134,6 +152,9 @@
     }
     ui.lastStep = d.step;
     el('discovery').hidden = !ui.discoveryOpen;
+    el('nintendo-discovery').hidden = ui.discoveryKind !== 'nintendo';
+    el('dualsense-discovery').hidden = ui.discoveryKind !== 'dualsense';
+    el('open-bluetooth-settings').hidden = snap.platform !== 'Windows';
     el('discovery-steps').innerHTML = ['Procurando', 'Encontrado', 'Conectando', 'Pareando', 'Pronto'].map((name, index) => {
       const cls = index < d.step || (d.step === 4 && index === 4) ? 'done' : index === d.step ? 'current' : '';
       return `<li class="${cls}" ${index === d.step ? 'aria-current="step"' : ''}>${name}</li>`;
@@ -157,6 +178,7 @@
     });
     all('[data-deadzone]').forEach(node => { if (document.activeElement !== node) node.value = draft.deadzones[node.dataset.deadzone]; });
     all('[data-remap]').forEach(node => { node.value = draft.remaps[node.dataset.remap] || 'Default'; });
+    all('[data-ds-remap]').forEach(node => { node.value = draft.dualSenseRemaps?.[node.dataset.dsRemap] || 'Default'; });
     all('[data-layout]').forEach(button => button.setAttribute('aria-checked', button.dataset.layout === draft.layout));
     el('layout-hint').textContent = draft.layout === 'Switch' ? 'Pela letra: A do Switch → A do Xbox' : 'Pela posição: B do Switch → A do Xbox';
     el('vibration-value').value = `${draft.vibration * 20}%`;
@@ -192,7 +214,7 @@
       const reason = fault.kind === 'bluetooth' ? mac ? 'O macOS ainda não permitiu que o Pad2Go use o Bluetooth, ou o Bluetooth está desligado.' : 'Ligue o Bluetooth e confira se há um adaptador compatível com Bluetooth LE.' : fault.kind === 'output' ? snap.platform === 'Windows' ? 'Os controles conectam e podem ser testados, mas falta o driver ViGEmBus. Instale-o e tente novamente.' : mac ? 'No macOS não há controle virtual: escolha “Automática” ou “Somente movimento” em Ajustes → Conexão → Saída.' : 'Confira o acesso a /dev/uinput.' : '';
       el('system-alert').innerHTML = `<strong>${title}</strong><span>${reason} <span class="technical">(${escape(fault.message)})</span></span><div class="banner-actions"><button type="button" class="push" data-retry>${snap.restarting ? 'Tentando…' : 'Tentar novamente'}</button><button type="button" class="link" data-help="${fault.kind === 'bluetooth' ? 'bluetooth' : 'output'}">Como resolver</button></div>`;
     }
-    el('connect').disabled = Boolean(fault) && fault.kind !== 'output';
+    el('connect').disabled = false;
     const busy = snap.discovery.step >= 1 && snap.discovery.step < 4 && !snap.discovery.failure && !snap.discovery.foreign;
     el('sidebar-status').textContent = fault ? 'Ação necessária' : snap.restarting ? 'Reiniciando…' : busy ? 'Conectando…' : snap.players.length ? `${snap.players.length} ${snap.players.length === 1 ? 'jogador' : 'jogadores'}` : 'Procurando controles';
     renderDevices(); renderDiscovery(); icons();
@@ -203,12 +225,48 @@
   const physicalLabels = { MINUS: '−', PLUS: '+', HOME: 'Home', CAPT: 'Captura', C: 'C (Chat)', L_STK: 'L3', R_STK: 'R3', UP: '↑', DOWN: '↓', LEFT: '←', RIGHT: '→', SL_L: 'SL', SR_L: 'SR', SL_R: 'SL', SR_R: 'SR' };
   const physicalOrder = ['A', 'B', 'X', 'Y', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'L', 'R', 'ZL', 'ZR', 'L_STK', 'R_STK', 'MINUS', 'PLUS', 'HOME', 'CAPT', 'C', 'SL_L', 'SR_L', 'SL_R', 'SR_R', 'GL', 'GR'];
   const number = (value, digits = 2) => value.toFixed(digits).replace('.', ',');
+  const physicalKey = (name, kind) => {
+    const common = { UP: 'UP', DOWN: 'DOWN', LEFT: 'LEFT', RIGHT: 'RIGHT', L_STK: 'LS', R_STK: 'RS', MINUS: 'SELECT', PLUS: 'START', HOME: 'HOME', CAPT: 'MUTE', C: 'TOUCH', L: 'L', R: 'R', ZL: 'L2', ZR: 'R2', GC_L_CLICK: 'L2', GC_R_CLICK: 'Z', GL: 'L', GR: 'R', SL_L: 'L', SR_L: 'L', SL_R: 'R', SR_R: 'R' };
+    if (kind === 'ds') return ({ A: 'EAST', B: 'SOUTH', X: 'NORTH', Y: 'WEST', ...common, L: 'L1', R: 'R1', ZL: 'L2', ZR: 'R2', MINUS: 'SELECT', PLUS: 'START', HOME: 'HOME', CAPT: 'MUTE', PS_L_Touch: 'TOUCH', PS_R_Touch: 'TOUCH', PS_C_Click: 'TOUCH' })[name];
+    if (kind === 'gc') return ({ A: 'SOUTH', B: 'WEST', X: 'EAST', Y: 'NORTH', ...common, MINUS: 'SELECT', PLUS: 'START', HOME: 'HOME' })[name];
+    if (kind === 'left' || (kind === 'joy-pair' && ['CAPT', 'SL_L', 'SR_L'].includes(name))) return ({ ...common, ZL: 'ZL', CAPT: 'CAPTURE', SL_L: 'SL', SR_L: 'SR' })[name];
+    if (kind === 'right') return ({ ...common, A: 'EAST', B: 'SOUTH', X: 'NORTH', Y: 'WEST', ZR: 'ZR', SL_R: 'SL', SR_R: 'SR' })[name];
+    if (kind === 'joy-pair' && ['SL_R', 'SR_R'].includes(name)) return ({ ...common, SL_R: 'SL', SR_R: 'SR' })[name];
+    if (kind === 'pro') return ({ ...common, ZL: 'ZL', ZR: 'ZR', CAPT: 'CAPTURE' })[name];
+    return ({ A: 'EAST', B: 'SOUTH', X: 'NORTH', Y: 'WEST', ...common })[name];
+  };
+  const svgCache = new Map();
+  async function controllerSVG(kind) {
+    const file = controllerAsset(kind);
+    if (!svgCache.has(file)) svgCache.set(file, fetch(`assets/controllers/${file}.svg`).then(r => { if (!r.ok) throw new Error(`SVG ${file}: ${r.status}`); return r.text(); }).then(svg => svg.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '').replace('class="hardware"', 'class="hardware test-hardware"')));
+    return svgCache.get(file);
+  }
+  async function controllerTestArt(members, horizontal = false) {
+    const kinds = members.length === 2 ? ['left', 'right'] : [members[0]?.kind || 'pro'];
+    return `<div class="hardware-set ${members.length === 2 ? 'pair' : ''} ${horizontal ? 'joy-horizontal' : ''}">${(await Promise.all(kinds.map(controllerSVG))).join('')}</div>`;
+  }
   function showInput(sample) {
     Object.entries(buttonIds).forEach(([id, bit]) => el(`pad-${id}`).classList.toggle('active', Boolean(sample.buttons & bit)));
     el('stick-left').parentElement.classList.toggle('active', Boolean(sample.buttons & 0x0040));
     el('stick-right').parentElement.classList.toggle('active', Boolean(sample.buttons & 0x0080));
     const pressed = (sample.pressed || []).slice().sort((a, b) => (physicalOrder.indexOf(a) + 99) % 99 - (physicalOrder.indexOf(b) + 99) % 99);
-    el('pressed-values').value = pressed.length ? pressed.map(name => physicalLabels[name] || name.replace(/_/g, ' ')).join(' · ') : '—';
+    const physicalNames = ui.testKind === 'ds' ? { Y: 'Square', X: 'Triangle', B: 'Cross', A: 'Circle', L: 'L1', R: 'R1', ZL: 'L2', ZR: 'R2', MINUS: 'Create', PLUS: 'Options', HOME: 'PS', PS_C_Click: 'Clique do touchpad' } : {};
+    el('touch-test').hidden = ui.testKind !== 'ds';
+    const touches = (sample.touch || []).filter(point => point.active);
+    el('touch-values').value = touches.length ? touches.map(point => `#${point.id}: ${point.x}, ${point.y}`).join(' · ') : 'Sem contato';
+    [0, 1].forEach(i => { const dot = el(`touch-point-${i}`); const point = (sample.touch || [])[i]; dot.toggleAttribute('hidden', !point?.active); if (point?.active) { dot.setAttribute('cx', Math.max(0, Math.min(1919, point.x))); dot.setAttribute('cy', Math.max(0, Math.min(1079, point.y))); } });
+    all('#test-controller .control[data-key]').forEach(node => node.classList.toggle('is-pressed', pressed.some(name => physicalKey(name, ui.testKind) === node.dataset.key)));
+    const physicalLT = sample.analog ? sample.plt : sample.lt;
+    const physicalRT = sample.analog ? sample.prt : sample.rt;
+    all('#test-controller .control[data-key="L2"], #test-controller .control[data-key="R2"]').forEach(node => node.classList.toggle('is-pressed', (node.dataset.key === 'L2' ? physicalLT : physicalRT) > 0));
+    const pair = ui.testKind === 'joy-pair';
+    const sticks = pair ? (sample.physicalKind === 1 ? [['LS', sample.plx, sample.ply]] : sample.physicalKind === 2 ? [['RS', sample.prx, sample.pry]] : [])
+      : ui.testKind === 'left' ? [['LS', sample.plx, sample.ply]] : ui.testKind === 'right' ? [['RS', sample.prx, sample.pry]]
+      : [['LS', sample.plx, sample.ply], ['RS', sample.prx, sample.pry]];
+    sticks.forEach(([key, x, y]) => all(`#test-controller [data-key="${key}"]`).forEach(node => { node.style.transformBox = 'fill-box'; node.style.transformOrigin = 'center'; node.style.transform = `translate(${x * 24}px,${-y * 24}px)`; }));
+    all('#test-shoulders [data-input]').forEach(node => node.classList.toggle('is-active', pressed.some(name => physicalKey(name, ui.testKind) === physicalKey(node.dataset.input, ui.testKind))));
+    all('#test-shoulders [data-trigger]').forEach(node => node.classList.toggle('is-active', (node.dataset.trigger === 'lt' ? physicalLT : physicalRT) > 0));
+    el('pressed-values').value = pressed.length ? pressed.map(name => physicalNames[name] || physicalLabels[name] || name.replace(/_/g, ' ')).join(' · ') : '—';
     el('stick-left').style.transform = `translate(${sample.lx * 14}px,${-sample.ly * 14}px)`;
     el('stick-right').style.transform = `translate(${sample.rx * 14}px,${-sample.ry * 14}px)`;
     el('left-values').value = `X ${number(sample.lx)} · Y ${number(sample.ly)}`;
@@ -217,7 +275,7 @@
       const value = Math.round(raw / 255 * 100);
       el(`trigger-${side}`).value = value; el(`trigger-${side}-value`).value = `${value}%${sample.analog ? '' : ' · digital'}`;
     });
-    el('gyro-values').value = sample.gyro.map(v => number(v, 1)).join(' · ');
+    el('gyro-values').value = ui.testKind === 'ds' && !sample.motionCalibrated ? 'Calibração indisponível' : sample.gyro.map(v => number(v, 1)).join(' · ');
     if (!inputNoteUntil || Date.now() > inputNoteUntil) { inputNoteUntil = 0; el('input-state').textContent = 'Recebendo entradas.'; }
   }
   let inputNoteUntil = 0;
@@ -232,13 +290,72 @@
     if (el('test-dialog').open) el('test-dialog').close();
     document.querySelector(`[data-test="${player}"]`)?.focus();
   }
-  function openTest(player) {
-    stopStream(); ui.testing = player; resetInput();
-    el('test-title').textContent = `Teste de entrada · Jogador ${player}`;
+  async function openTest(player) {
+    stopStream(); ui.testing = player;
+    const slot = snap.players.find(p => p.player === player);
+    const kinds = slot?.members.map(m => m.kind) || [];
+    ui.testKind = kinds.length === 2 ? 'joy-pair' : kinds[0] || '';
+    resetInput();
+    const horizontal = kinds.length === 1 && ['left', 'right'].includes(kinds[0]) && holdMode(slot.members[0]) === 'Horizontal';
+    const deviceName = slot?.members.length === 2 ? 'Par de Joy-Cons' : slot?.members[0]?.name || slot?.name || 'Controle';
+    el('test-title').textContent = `Teste de entrada · ${deviceName}`;
+    el('test-device-name').textContent = deviceName;
+    el('test-shoulders').innerHTML = testShoulders(kinds);
+    el('test-controller').innerHTML = await controllerTestArt(slot?.members || [], horizontal);
+    el('test-controller').className = `test-controller ${kinds.length === 2 ? 'joy-pair' : kinds[0] || ''}${horizontal ? ' joy-horizontal' : ''}`;
+    el('test-mapping').textContent = mappingText(slot?.members || []);
     inputStream = new EventSource(`/api/players/${player}/input`);
     inputStream.addEventListener('input', event => showInput(JSON.parse(event.data)));
     inputStream.onerror = () => { if (ui.testing === player) el('input-state').textContent = 'Sem entradas: o controle desconectou?'; };
     el('test-dialog').showModal();
+  }
+  function mappingText(members) {
+    const kinds = members.map(member => member.kind);
+    const kind = kinds.length === 2 ? 'joy-pair' : kinds[0] || '';
+    const byLabel = (draft?.layout || snap.config.layout) === 'Switch';
+    const standardFaces = byLabel ? 'A → A · B → B · X → X · Y → Y' : 'A → B · B → A · X → Y · Y → X';
+    if (kind === 'ds') {
+      return 'Cross → A · Circle → B · Square → X · Triangle → Y · L1/R1 → LB/RB · L2/R2 → LT/RT';
+    }
+    if (kind === 'gc') return byLabel
+      ? 'A → A · B → B · X → X · Y → Y · Z → RT'
+      : 'A → A · B → X · X → B · Y → Y · Z → RT';
+    if (kind === 'joy-pair') return `Par combinado · L/R → LB/RB · ZL/ZR → LT/RT · ${standardFaces}`;
+    if (kind === 'left' || kind === 'right') {
+      const member = members[0];
+      const hold = holdMode(member);
+      const sideways = hold === 'Horizontal';
+      if (kind === 'left') {
+        const directions = sideways
+          ? (byLabel ? '↑/↓/←/→ → Y/A/B/X' : '↑/↓/←/→ → X/B/A/Y')
+          : (byLabel ? '↑/↓/←/→ → X/B/Y/A' : '↑/↓/←/→ → Y/A/X/B');
+        const shoulders = sideways ? 'SL/SR → LT/RT' : 'L → LB · ZL → LT';
+        return `Joy-Con ${sideways ? 'horizontal' : 'vertical'} · ${shoulders} · ${directions}`;
+      }
+      const faces = sideways
+        ? (byLabel ? 'A/B/X/Y → B/Y/A/X' : 'A/B/X/Y → A/X/B/Y')
+        : standardFaces;
+      const shoulders = sideways ? 'SL/SR → LT/RT' : 'R → RB · ZR → RT';
+      return `Joy-Con ${sideways ? 'horizontal' : 'vertical'} · ${shoulders} · ${faces}`;
+    }
+    return `L/R → LB/RB · ZL/ZR → LT/RT · ${standardFaces}`;
+  }  function testShoulders(kinds) {
+    // Joy-Con shoulder inputs are drawn on each physical controller. A second
+    // row of floating L/R/ZL/ZR pills made them look detached and duplicated.
+    if (kinds.length && kinds.every(kind => kind === 'left' || kind === 'right')) return '';
+    let left = [['L', 'L'], ['ZL', 'ZL']];
+    let right = [['R', 'R'], ['ZR', 'ZR']];
+    if (kinds[0] === 'ds') {
+      left = [['L', 'L1'], ['lt', 'L2']]; right = [['R', 'R1'], ['rt', 'R2']];
+    } else if (kinds[0] === 'gc') {
+      left = [['L', 'L'], ['lt', 'L2']]; right = [['R', 'R'], ['rt', 'R2'], ['GC_R_CLICK', 'Z']];
+    } else if (kinds.length === 1 && kinds[0] === 'left') {
+      right = [];
+    } else if (kinds.length === 1 && kinds[0] === 'right') {
+      left = [];
+    }
+    const group = (side, entries) => `<div class="shoulder-side ${side}">${entries.map(([key, label]) => key === 'lt' || key === 'rt' ? `<span data-trigger="${key}">${label}</span>` : `<span data-input="${key}">${label}</span>`).join('')}</div>`;
+    return group('left', left) + group('right', right);
   }
   el('test-dialog').addEventListener('close', () => { if (ui.testing !== null) { stopStream(); ui.testing = null; } });
 
@@ -286,7 +403,7 @@
   // --- Diagnostics ------------------------------------------------------------------
   const help = {
     bluetooth: () => snap.platform === 'macOS' ? 'Na primeira execução o macOS pergunta se o Pad2Go pode usar o Bluetooth: clique em Permitir. Se você recusou, ative o Pad2Go em Ajustes do Sistema → Privacidade e Segurança → Bluetooth. Confira se o Bluetooth está ligado e clique em “Tentar novamente”.' : 'Ligue o Bluetooth nas configurações do computador e confirme que há um adaptador compatível com Bluetooth LE. Depois, clique em “Tentar novamente”.',
-    output: () => snap.platform === 'macOS' ? 'O macOS não permite criar controles virtuais. Em Ajustes → Conexão → Saída, escolha “Automática” ou “Somente movimento” e reinicie as conexões; o movimento continua disponível para emuladores via DSU.' : snap.platform === 'Windows' ? 'O instalador do Pad2Go já instala o ViGEmBus. Se você usou o pad2go.exe avulso, instale o <a href="https://github.com/nefarius/ViGEmBus/releases/latest" target="_blank" rel="noreferrer">ViGEmBus 1.22</a> e clique em Tentar novamente. O “Virtual Gamepad Emulation Bus G2” (VirtualPad, instalado por apps como o DSX) é outro driver e não substitui o ViGEmBus. Se o jogo detectar entradas duplicadas, use o <a href="https://github.com/nefarius/HidHide" target="_blank" rel="noreferrer">HidHide</a> para ocultar o controle físico.' : 'Carregue o módulo com <code>sudo modprobe uinput</code>, confira se /dev/uinput existe e dê acesso ao seu usuário com uma regra udev.',
+    output: () => snap.platform === 'macOS' ? 'O macOS não permite criar controles virtuais. Em Ajustes → Conexão → Saída, escolha “Automática” ou “Somente movimento” e reinicie as conexões; o movimento continua disponível para emuladores via DSU.' : snap.platform === 'Windows' ? 'O instalador do Pad2Go já instala o ViGEmBus. Se você usou o pad2go.exe avulso, instale o <a href="https://github.com/nefarius/ViGEmBus/releases/latest" target="_blank" rel="noreferrer">ViGEmBus 1.22</a> e clique em Tentar novamente. Se o jogo detectar entradas duplicadas, use o <a href="https://github.com/nefarius/HidHide" target="_blank" rel="noreferrer">HidHide</a> para ocultar o controle físico.' : 'Carregue o módulo com <code>sudo modprobe uinput</code>, confira se /dev/uinput existe e dê acesso ao seu usuário com uma regra udev.',
     mac: () => 'Informe o endereço Bluetooth do computador em Ajustes → Conexão. Sem ele a conexão funciona, mas o pareamento para reconectar com um toque não é salvo.',
   };
   function showHelp(button) {
@@ -311,12 +428,15 @@
   const remapLabels = { Default: 'Padrão', None: 'Sem ação', MINUS: '−', PLUS: '+', L_STK: 'Clique analógico L', R_STK: 'Clique analógico R', UP: 'Cima', DOWN: 'Baixo', LEFT: 'Esquerda', RIGHT: 'Direita', HOME: 'Home', CAPT: 'Captura' };
   const remapValues = ['Default', 'None', 'A', 'B', 'X', 'Y', 'L', 'R', 'ZL', 'ZR', 'MINUS', 'PLUS', 'L_STK', 'R_STK', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'HOME', 'CAPT'];
   el('remaps').innerHTML = [['home', 'Home'], ['capt', 'Captura'], ['c', 'C (GameCube)'], ['gl', 'GL'], ['gr', 'GR'], ['sll', 'SL do Joy-Con L'], ['srl', 'SR do Joy-Con L'], ['slr', 'SL do Joy-Con R'], ['srr', 'SR do Joy-Con R']].map(([key, name]) => `<div class="row"><div class="row-label"><label for="remap-${key}">${name}</label></div><div class="row-control"><select id="remap-${key}" data-remap="${key}">${remapValues.map(value => `<option value="${value}">${remapLabels[value] || value}</option>`).join('')}</select></div></div>`).join('');
+  const dsTargets = [['Default','Padrão'],['None','Sem ação'],['B','A'],['A','B'],['Y','X'],['X','Y'],['L','LB'],['R','RB'],['ZL','LT'],['ZR','RT'],['MINUS','View'],['PLUS','Menu'],['L_STK','Analógico esquerdo'],['R_STK','Analógico direito'],['UP','Direcional cima'],['DOWN','Direcional baixo'],['LEFT','Direcional esquerda'],['RIGHT','Direcional direita'],['HOME','Xbox']];
+  el('dualsense-remaps').innerHTML = [['cross','Cruz'],['circle','Círculo'],['square','Quadrado'],['triangle','Triângulo'],['l1','L1'],['r1','R1'],['l2','L2'],['r2','R2'],['l3','L3'],['r3','R3'],['create','Criar'],['options','Opções'],['ps','PS'],['touch','Clique do touchpad'],['up','Direcional cima'],['down','Direcional baixo'],['left','Direcional esquerda'],['right','Direcional direita']].map(([key,name]) => `<div class="row"><div class="row-label"><label for="ds-remap-${key}">${name}</label></div><div class="row-control"><select id="ds-remap-${key}" data-ds-remap="${key}">${dsTargets.map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select></div></div>`).join('');
 
   document.addEventListener('click', async event => {
     const button = event.target.closest('button'); if (!button || button.disabled) return;
     if (button.dataset.view) setView(button.dataset.view);
-    else if (button.id === 'connect') { ui.discoveryOpen = true; render(); }
-    else if (button.id === 'show-howto') { ui.discoveryOpen = true; render(); el('howto').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    else if (button.id === 'connect' || button.id === 'show-howto') { ui.discoveryOpen = true; ui.discoveryKind = null; render(); el('discovery').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    else if (button.dataset.connectKind) { ui.discoveryKind = button.dataset.connectKind; render(); }
+    else if (button.id === 'open-bluetooth-settings') { try { await api('/api/bluetooth/settings', { method: 'POST' }); } catch (error) { announce(`Não foi possível abrir as configurações: ${error.message}`, true); } }
     else if (button.id === 'hide-discovery') { ui.discoveryOpen = false; render(); el('connect').focus(); }
     else if (button.id === 'accept-foreign') { draft.foreign = true; clearTimeout(saveTimer); try { snap = await api('/api/config', { method: 'PUT', body: draft }); await restart(); } catch (error) { announce(`Não foi possível salvar: ${error.message}`, true); } }
     else if (button.id === 'apply-config' || button.hasAttribute('data-retry')) await restart();
@@ -342,11 +462,12 @@
     if (node.dataset.config && node.type !== 'range') {
       if (!validate(node)) return;
       const key = node.dataset.config;
-      draft[key] = node.type === 'checkbox' ? node.checked : ['port', 'max'].includes(key) ? Number(node.value) : node.value.trim();
+      draft[key] = node.type === 'checkbox' ? node.checked : ['port', 'max', 'dualSenseBrightness'].includes(key) ? Number(node.value) : node.value.trim();
       save();
     }
     if (node.hasAttribute('data-deadzone')) { if (!validate(node)) return; draft.deadzones[node.dataset.deadzone] = Number(node.value); save(); }
     if (node.hasAttribute('data-remap')) { draft.remaps[node.dataset.remap] = node.value; save(); }
+    if (node.hasAttribute('data-ds-remap')) { draft.dualSenseRemaps = { ...draft.dualSenseRemaps, [node.dataset.dsRemap]: node.value }; save(); }
     if (node.dataset.deviceHold) { draft.holds = { ...draft.holds, [node.dataset.deviceHold]: node.value }; save(); }
   });
   document.addEventListener('input', event => {
@@ -374,5 +495,11 @@
     events.onerror = () => { el('offline').hidden = false; el('sidebar-status').textContent = 'Sem conexão'; };
   }
   window.addEventListener('beforeunload', stopStream);
+  // Refresh diagnostics while a DualSense is connected. HID does not expose RSSI
+  // or reports lost before reaching Windows, so these are receive counts only.
+  setInterval(async () => {
+    if (!snap?.players.some(p => p.members.some(m => m.diagnostics))) return;
+    try { const current = await api('/api/state'); if (snap) { snap = current; renderDevices(); } } catch { /* EventSource reports disconnects. */ }
+  }, 2000);
   icons(); render(); connectEvents();
 })();

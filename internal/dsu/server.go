@@ -35,10 +35,13 @@ const (
 
 // Pad is one controller sample to publish.
 type Pad struct {
-	MAC     [6]byte
-	Model   byte
-	Battery byte // DSU battery enum; 0x05 = full
-	Buttons uint32
+	MAC                       [6]byte
+	Model                     byte
+	Battery                   byte // DSU battery enum; 0x05 = full
+	Buttons                   uint32
+	AnalogTriggers            bool
+	LeftTrigger, RightTrigger byte
+	Touch                     [2]protocol.TouchContact
 	// Sticks in [-1,1], +Y up.
 	LX, LY, RX, RY float64
 	// Motion in DS4 axes: accel in g, gyro in deg/s (pitch, yaw, roll).
@@ -311,7 +314,16 @@ func encodePadData(id byte, counter uint32, p Pad, now time.Time) []byte {
 	btn2 := bit(protocol.BtnY, 0x80) | bit(protocol.BtnB, 0x40) | bit(protocol.BtnA, 0x20) |
 		bit(protocol.BtnX, 0x10) | bit(protocol.BtnR, 0x08) | bit(protocol.BtnL, 0x04) |
 		bit(protocol.BtnZR, 0x02) | bit(protocol.BtnZL, 0x01)
-	out = append(out, btn1, btn2, bit(protocol.BtnHome, 1), bit(protocol.BtnCapture, 1))
+	if p.AnalogTriggers {
+		if p.RightTrigger > 0 {
+			btn2 |= 0x02
+		}
+		if p.LeftTrigger > 0 {
+			btn2 |= 0x01
+		}
+	}
+	touchClick := bit(protocol.BtnCapture|protocol.BtnPSCClick, 1)
+	out = append(out, btn1, btn2, bit(protocol.BtnHome, 1), touchClick)
 	// DSU sticks: 0-255, plus rightward and upward (the CemuHook spec; Eden
 	// and other yuzu forks read them that way).
 	out = append(out, stickByte(p.LX), stickByte(p.LY), stickByte(p.RX), stickByte(p.RY))
@@ -319,10 +331,25 @@ func encodePadData(id byte, counter uint32, p Pad, now time.Time) []byte {
 	analog := []uint32{protocol.BtnLeft, protocol.BtnDown, protocol.BtnRight, protocol.BtnUp,
 		protocol.BtnY, protocol.BtnB, protocol.BtnA, protocol.BtnX, protocol.BtnR, protocol.BtnL,
 		protocol.BtnZR, protocol.BtnZL}
-	for _, m := range analog {
-		out = append(out, bit(m, 255))
+	for i, m := range analog {
+		value := bit(m, 255)
+		if p.AnalogTriggers && i == 10 {
+			value = p.RightTrigger
+		}
+		if p.AnalogTriggers && i == 11 {
+			value = p.LeftTrigger
+		}
+		out = append(out, value)
 	}
-	out = append(out, make([]byte, 12)...) // two empty touch points
+	for _, touch := range p.Touch {
+		active := byte(0)
+		if touch.Active {
+			active = 1
+		}
+		out = append(out, active, touch.ID)
+		out = binary.LittleEndian.AppendUint16(out, touch.X)
+		out = binary.LittleEndian.AppendUint16(out, touch.Y)
+	}
 	out = binary.LittleEndian.AppendUint64(out, uint64(now.UnixMicro()))
 	for _, v := range p.Accel {
 		out = binary.LittleEndian.AppendUint32(out, math.Float32bits(v))

@@ -15,6 +15,8 @@ import (
 	"github.com/patrickdeangelis/pad2go/internal/config"
 	"github.com/patrickdeangelis/pad2go/internal/controller"
 	"github.com/patrickdeangelis/pad2go/internal/controller/controllertest"
+	"github.com/patrickdeangelis/pad2go/internal/dualsense"
+	"github.com/patrickdeangelis/pad2go/internal/hid"
 	"github.com/patrickdeangelis/pad2go/internal/lifecycle"
 	"github.com/patrickdeangelis/pad2go/internal/protocol"
 	"github.com/patrickdeangelis/pad2go/internal/virtualpad"
@@ -76,6 +78,9 @@ func build(t *testing.T, opt Options) *Service {
 	if opt.OpenBackend == nil {
 		opt.OpenBackend = func(string) (virtualpad.Backend, error) { return &virtualpad.Recorder{}, nil }
 	}
+	if opt.HID == nil {
+		opt.HID = &hidTestBackend{}
+	}
 	opt.Log = slog.New(slog.DiscardHandler)
 	opt.Backoff, opt.ConnectTimeout = 5*time.Millisecond, 5*time.Second
 	s, err := New(opt)
@@ -113,6 +118,29 @@ func TestSettingsRoundTrip(t *testing.T) {
 	SettingsFrom(c).Apply(next)
 	if !reflect.DeepEqual(SettingsFrom(c), SettingsFrom(next)) {
 		t.Fatalf("round trip changed settings:\n%+v\n%+v", SettingsFrom(c), SettingsFrom(next))
+	}
+}
+
+func TestSaveDeadzoneIsIsolatedUntilRestart(t *testing.T) {
+	s := build(t, Options{})
+	set := s.Snapshot().Config
+	set.Deadzones.DualSense = 14
+	set.Port = 0
+	if err := s.SaveSettings(set); err == nil {
+		t.Fatal("invalid settings accepted")
+	}
+	if got := s.Snapshot().Config.Deadzones.DualSense; got != 5 {
+		t.Fatalf("rejected save changed deadzone to %v", got)
+	}
+	set.Port = 26760
+	if err := s.SaveSettings(set); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Snapshot().Pending {
+		t.Fatal("deadzone-only change must be pending")
+	}
+	if got := s.applied.Deadzone("dualsense"); got != .05 {
+		t.Fatalf("running deadzone changed to %v", got)
 	}
 }
 
@@ -213,5 +241,54 @@ func TestDiscoveryResultExpires(t *testing.T) {
 	s.mu.Unlock()
 	if d := s.Snapshot().Discovery; d.Step != 0 || d.Text != "Procurando controles…" {
 		t.Fatalf("an old result should give way to the live search state: %+v", d)
+	}
+}
+
+type hidTestBackend struct{ infos []hid.Info }
+
+func (b *hidTestBackend) List() ([]hid.Info, error) { return b.infos, nil }
+func (b *hidTestBackend) Open(hid.Info) (dualsense.Transport, error) {
+	return &hidTestTransport{closed: make(chan struct{})}, nil
+}
+
+type hidTestTransport struct {
+	once   sync.Once
+	closed chan struct{}
+}
+
+func (t *hidTestTransport) Read(b []byte) (int, error) {
+	select {
+	case <-t.closed:
+		return 0, errors.New("closed")
+	case <-time.After(3 * time.Millisecond):
+	}
+	clear(b)
+	b[0] = 1
+	b[8] = 8
+	b[53] = 6
+	return 64, nil
+}
+func (t *hidTestTransport) Write([]byte) error { return nil }
+func (t *hidTestTransport) Close() error       { t.once.Do(func() { close(t.closed) }); return nil }
+func TestSnapshotDualSenseMember(t *testing.T) {
+	b := &hidTestBackend{infos: []hid.Info{{Path: "mac", VendorID: dualsense.VendorID, ProductID: dualsense.ProductID}}}
+	s := start(t, Options{HID: b, Radio: func() (lifecycle.Radio, error) { return nil, errors.New("adapter off") }})
+	eventually(t, "DualSense snapshot", func() bool {
+		v := s.Snapshot()
+		return len(v.Players) > 0 && len(v.Players[0].Members) > 0 && v.Players[0].Members[0].BatteryPercent != nil
+	})
+	v := s.Snapshot()
+	m := v.Players[0].Members[0]
+	if m.Kind != "ds" || m.Name != "DualSense" || m.Battery != "high" || m.Volts != 0 || *m.BatteryPercent != 65 || m.BatteryStatus != "discharging" {
+		t.Fatalf("member=%+v", m)
+	}
+}
+func TestBluetoothFaultStillStartsHID(t *testing.T) {
+	b := &hidTestBackend{infos: []hid.Info{{Path: "mac", VendorID: dualsense.VendorID, ProductID: dualsense.ProductID}}}
+	s := start(t, Options{HID: b, Radio: func() (lifecycle.Radio, error) { return nil, errors.New("adapter off") }})
+	eventually(t, "HID attach", func() bool { return len(s.Snapshot().Players) == 1 })
+	v := s.Snapshot()
+	if v.Fault == nil || v.Fault.Kind != "bluetooth" || v.Players[0].Player != 1 {
+		t.Fatalf("snapshot=%+v", v)
 	}
 }

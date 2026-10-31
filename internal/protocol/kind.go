@@ -11,6 +11,7 @@ const (
 	KindJoyConRight
 	KindPro
 	KindGameCube
+	KindDualSense
 )
 
 // KindOf classifies a product ID.
@@ -47,5 +48,5 @@ func (k Kind) DeadzoneFamily() string {
 }
 
 func (k Kind) String() string {
-	return [...]string{"unknown", "Joy-Con (L)", "Joy-Con (R)", "Pro Controller", "GameCube"}[k]
+	return [...]string{"unknown", "Joy-Con (L)", "Joy-Con (R)", "Pro Controller", "GameCube", "DualSense"}[k]
 }

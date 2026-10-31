@@ -8,31 +8,39 @@ import (
 
 // Settings is the part of the configuration the UI edits, in the UI's shape.
 type Settings struct {
-	Combine     bool              `json:"combine"`
-	PairGyro    string            `json:"pairGyro"` // "Right" or "Left": a pair's motion source
-	Gyro        bool              `json:"gyro"`
-	Layout      string            `json:"layout"`      // "Xbox" (by position) or "Switch" (by label)
-	Vibration   int               `json:"vibration"`   // 0-10, 5 = 100%
-	Sensitivity int               `json:"sensitivity"` // 1-5, yaw only
-	Host        string            `json:"host"`
-	Port        int               `json:"port"`
-	Max         int               `json:"max"`
-	Backend     string            `json:"backend"`
-	HostMAC     string            `json:"hostMac"`
-	Hold        string            `json:"hold"`
-	Trigger     string            `json:"trigger"`
-	Haptics     bool              `json:"haptics"`
-	Foreign     bool              `json:"foreign"`
-	Deadzones   Deadzones         `json:"deadzones"`
-	Remaps      Remaps            `json:"remaps"`
-	Holds       map[string]string `json:"holds"` // Joy-Con address -> hold mode
+	Combine               bool              `json:"combine"`
+	PairGyro              string            `json:"pairGyro"` // "Right" or "Left": a pair's motion source
+	Gyro                  bool              `json:"gyro"`
+	Layout                string            `json:"layout"`      // "Xbox" (by position) or "Switch" (by label)
+	Vibration             int               `json:"vibration"`   // 0-10, 5 = 100%
+	Sensitivity           int               `json:"sensitivity"` // 1-5, yaw only
+	Host                  string            `json:"host"`
+	Port                  int               `json:"port"`
+	Max                   int               `json:"max"`
+	Backend               string            `json:"backend"`
+	HostMAC               string            `json:"hostMac"`
+	Hold                  string            `json:"hold"`
+	Trigger               string            `json:"trigger"`
+	Haptics               bool              `json:"haptics"`
+	Foreign               bool              `json:"foreign"`
+	Deadzones             Deadzones         `json:"deadzones"`
+	Remaps                Remaps            `json:"remaps"`
+	DualSenseRemaps       map[string]string `json:"dualSenseRemaps"`
+	DualSenseLighting     bool              `json:"dualSenseLighting"`
+	DualSenseColor        string            `json:"dualSenseColor"`
+	DualSenseBrightness   int               `json:"dualSenseBrightness"`
+	DualSensePlayerLED    bool              `json:"dualSensePlayerLED"`
+	DualSenseTriggerLeft  string            `json:"dualSenseTriggerLeft"`
+	DualSenseTriggerRight string            `json:"dualSenseTriggerRight"`
+	Holds                 map[string]string `json:"holds"` // Joy-Con address -> hold mode
 }
 
 // Deadzones are radial stick deadzones in percent, per controller family.
 type Deadzones struct {
-	JoyCon   float64 `json:"joycon"`
-	Pro      float64 `json:"pro"`
-	GameCube float64 `json:"gc"`
+	JoyCon    float64 `json:"joycon"`
+	Pro       float64 `json:"pro"`
+	GameCube  float64 `json:"gc"`
+	DualSense float64 `json:"dualsense"`
 }
 
 // Remaps are the extra-button targets ("Default", "None" or a button name).
@@ -57,15 +65,19 @@ func SettingsFrom(c *config.Config) Settings {
 		Backend: c.Output, HostMAC: c.HostMAC, Hold: c.DefaultHoldMode,
 		Trigger: c.GCTriggerMode, Haptics: c.ConnectHaptics, Foreign: c.AcceptForeignControllers,
 		Deadzones: Deadzones{
-			JoyCon:   c.Deadzone("joycon") * 100,
-			Pro:      c.Deadzone("pro_controller") * 100,
-			GameCube: c.Deadzone("nso_gamecube_controller") * 100,
+			JoyCon:    c.Deadzone("joycon") * 100,
+			Pro:       c.Deadzone("pro_controller") * 100,
+			GameCube:  c.Deadzone("nso_gamecube_controller") * 100,
+			DualSense: c.Deadzone("dualsense") * 100,
 		},
 		Remaps: Remaps{
 			Home: c.HomeMapping, Capt: c.CaptMapping, C: c.CMapping, GL: c.GLMapping, GR: c.GRMapping,
 			SLL: c.SLLMapping, SRL: c.SRLMapping, SLR: c.SLRMapping, SRR: c.SRRMapping,
 		},
-		Holds: maps.Clone(c.JoyConHoldMode),
+		Holds:             maps.Clone(c.JoyConHoldMode),
+		DualSenseRemaps:   maps.Clone(c.DualSenseRemaps),
+		DualSenseLighting: c.DualSenseLighting, DualSenseColor: c.DualSenseColor, DualSenseBrightness: c.DualSenseBrightness, DualSensePlayerLED: c.DualSensePlayerLED,
+		DualSenseTriggerLeft: c.DualSenseTriggerLeft, DualSenseTriggerRight: c.DualSenseTriggerRight,
 	}
 }
 
@@ -80,12 +92,19 @@ func (s Settings) Apply(c *config.Config) {
 	c.CemuhookHost, c.CemuhookPort, c.MaxControllers = s.Host, s.Port, s.Max
 	c.Output, c.HostMAC, c.DefaultHoldMode = s.Backend, s.HostMAC, s.Hold
 	c.GCTriggerMode, c.ConnectHaptics, c.AcceptForeignControllers = s.Trigger, s.Haptics, s.Foreign
+	// Configs are copied by value during save; never mutate a map still shared
+	// with the running configuration, especially when validation later fails.
+	c.JoystickDeadzonePercent = maps.Clone(c.JoystickDeadzonePercent)
 	if c.JoystickDeadzonePercent == nil {
 		c.JoystickDeadzonePercent = map[string]float64{}
 	}
 	c.JoystickDeadzonePercent["joycon"] = s.Deadzones.JoyCon
 	c.JoystickDeadzonePercent["pro_controller"] = s.Deadzones.Pro
 	c.JoystickDeadzonePercent["nso_gamecube_controller"] = s.Deadzones.GameCube
+	c.JoystickDeadzonePercent["dualsense"] = s.Deadzones.DualSense
+	c.DualSenseRemaps = maps.Clone(s.DualSenseRemaps)
+	c.DualSenseLighting, c.DualSenseColor, c.DualSenseBrightness, c.DualSensePlayerLED = s.DualSenseLighting, s.DualSenseColor, s.DualSenseBrightness, s.DualSensePlayerLED
+	c.DualSenseTriggerLeft, c.DualSenseTriggerRight = s.DualSenseTriggerLeft, s.DualSenseTriggerRight
 	r := s.Remaps
 	c.HomeMapping, c.CaptMapping, c.CMapping, c.GLMapping, c.GRMapping = r.Home, r.Capt, r.C, r.GL, r.GR
 	c.SLLMapping, c.SRLMapping, c.SLRMapping, c.SRRMapping = r.SLL, r.SRL, r.SLR, r.SRR

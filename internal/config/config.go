@@ -4,6 +4,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -78,6 +79,14 @@ type Config struct {
 	SRRMapping  string `yaml:"srr_mapping"`
 	// ButtonRemaps holds per-emulation-mode overrides; the "xbox" entry applies.
 	ButtonRemaps map[string]Remaps `yaml:"button_remaps"`
+	// DualSenseRemaps maps physical DualSense button names to positional pad buttons.
+	DualSenseRemaps       map[string]string `yaml:"dualsense_remaps,omitempty"`
+	DualSenseLighting     bool              `yaml:"dualsense_lighting"`
+	DualSenseColor        string            `yaml:"dualsense_color"`
+	DualSenseBrightness   int               `yaml:"dualsense_brightness"`
+	DualSensePlayerLED    bool              `yaml:"dualsense_player_led"`
+	DualSenseTriggerLeft  string            `yaml:"dualsense_trigger_left"`
+	DualSenseTriggerRight string            `yaml:"dualsense_trigger_right"`
 
 	// UIPort is the local web interface port on 127.0.0.1 (0 disables it).
 	UIPort int `yaml:"ui_port"`
@@ -101,7 +110,8 @@ type Remaps struct {
 // Default returns the default configuration.
 func Default() *Config {
 	return &Config{
-		Output:               "auto",
+		Output:         "auto",
+		DualSenseColor: "#0080ff", DualSenseBrightness: 100, DualSensePlayerLED: true, DualSenseTriggerLeft: "off", DualSenseTriggerRight: "off",
 		MaxControllers:       4,
 		ABXYMode:             "Xbox",
 		CombineJoyCons:       true,
@@ -111,7 +121,7 @@ func Default() *Config {
 		GCTriggerMode:        "100% at Bump",
 		GCTriggerCalibration: map[string][]int{},
 		JoystickDeadzonePercent: map[string]float64{
-			"joycon": 3, "pro_controller": 3, "nso_gamecube_controller": 3,
+			"joycon": 3, "pro_controller": 3, "nso_gamecube_controller": 3, "dualsense": 5,
 		},
 		VibrationStrength:   5,
 		ConnectHaptics:      true,
@@ -173,6 +183,20 @@ func (c *Config) applyModeRemaps() {
 
 // Validate checks enumerated values.
 func (c *Config) Validate() error {
+	for _, preset := range []string{c.DualSenseTriggerLeft, c.DualSenseTriggerRight} {
+		if preset != "off" && preset != "resistance" && preset != "barrier" {
+			return fmt.Errorf("dualsense trigger: unknown preset %q", preset)
+		}
+	}
+	if len(c.DualSenseColor) != 7 || c.DualSenseColor[0] != '#' {
+		return errors.New("dualsense_color: want #RRGGBB")
+	}
+	if _, err := hex.DecodeString(c.DualSenseColor[1:]); err != nil {
+		return errors.New("dualsense_color: want #RRGGBB")
+	}
+	if c.DualSenseBrightness < 0 || c.DualSenseBrightness > 100 {
+		return errors.New("dualsense_brightness: want 0-100")
+	}
 	switch c.Output {
 	case "auto", "vigem", "uinput", "none":
 	default:
@@ -247,6 +271,9 @@ func (c *Config) Deadzone(family string) float64 {
 	if v, ok := c.JoystickDeadzonePercent[family]; ok {
 		return v / 100
 	}
+	if family == "dualsense" {
+		return 0.05
+	}
 	return 0.03
 }
 
@@ -289,6 +316,17 @@ joystick_deadzone_percent:
   joycon: 3
   pro_controller: 3
   nso_gamecube_controller: 3
+  dualsense: 5
+
+# Physical DualSense options (Windows USB/Bluetooth HID).
+dualsense_lighting: false       # true applies the color and player LED option
+dualsense_color: "#0080ff"     # RGB color of the lightbar
+dualsense_brightness: 100       # 0-100 percent
+dualsense_player_led: true
+dualsense_trigger_left: off      # off | resistance | barrier
+dualsense_trigger_right: off
+# dualsense_remaps:             # touch: B maps touchpad click to Xbox A
+#   touch: B
 
 vibration_strength_xbox: 5      # 0-10, 5 = 100%
 rumble_delay_ms: 0

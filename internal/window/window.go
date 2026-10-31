@@ -13,8 +13,10 @@ import (
 
 // Window is a native window showing one URL.
 type Window struct {
-	w    webview.WebView
-	once sync.Once
+	w         webview.WebView
+	mu        sync.Mutex
+	closing   bool
+	destroyed bool
 }
 
 // New creates the window. It must be called from the main goroutine, which
@@ -32,10 +34,19 @@ func New(title, url string, width, height int) *Window {
 // Run shows the window and blocks until it is closed.
 func (w *Window) Run() {
 	w.w.Run()
+	w.mu.Lock()
+	w.destroyed = true
 	w.w.Destroy()
+	w.mu.Unlock()
 }
 
 // Close closes the window; safe to call from any goroutine, more than once.
 func (w *Window) Close() {
-	w.once.Do(func() { w.w.Dispatch(w.w.Terminate) })
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closing || w.destroyed {
+		return
+	}
+	w.closing = true
+	w.w.Dispatch(w.w.Terminate)
 }
