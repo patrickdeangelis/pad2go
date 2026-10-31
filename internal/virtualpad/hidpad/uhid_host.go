@@ -111,9 +111,9 @@ func (h *uhidHost) Complete(_ context.Context, event HostEvent, data []byte, com
 	switch event.Kind {
 	case HostOutputReport:
 		// A UHID_OUTPUT event has no request id and needs no reply. An
-		// output-type UHID_SET_REPORT does carry one, and the kernel waits for
+		// output-type UHID_SET_REPORT does need one, and the kernel waits for
 		// UHID_SET_REPORT_REPLY before it releases the HID client.
-		if event.Request != 0 {
+		if event.NeedsReply {
 			return codec.setReportReply(uint32(event.Request), errno)
 		}
 		return nil
@@ -129,10 +129,18 @@ func (h *uhidHost) Complete(_ context.Context, event HostEvent, data []byte, com
 func (h *uhidHost) StopEvents() error {
 	h.stopOnce.Do(func() {
 		h.mu.Lock()
-		done, rw, started, readerDone := h.done, h.rw, h.readerStarted, h.readerDone
+		done, rw, codec, started, readerDone := h.done, h.rw, h.codec, h.readerStarted, h.readerDone
+		h.closed = true
 		h.mu.Unlock()
 		if done != nil {
 			close(done)
+		}
+		// Send DESTROY while the descriptor is still open. Closing the fd also
+		// destroys the device, but the explicit event is the documented path.
+		if codec != nil {
+			h.writeMu.Lock()
+			_ = codec.destroy()
+			h.writeMu.Unlock()
 		}
 		if rw != nil {
 			_ = rw.Close()
@@ -140,9 +148,6 @@ func (h *uhidHost) StopEvents() error {
 		if started {
 			<-readerDone
 		}
-		h.mu.Lock()
-		h.closed = true
-		h.mu.Unlock()
 		h.closeEvents()
 	})
 	return nil
@@ -151,13 +156,6 @@ func (h *uhidHost) StopEvents() error {
 func (h *uhidHost) Close() error {
 	h.closeOnce.Do(func() {
 		_ = h.StopEvents()
-		h.mu.Lock()
-		h.closed = true
-		codec := h.codec
-		h.mu.Unlock()
-		if codec != nil {
-			_ = codec.destroy()
-		}
 	})
 	return nil
 }
@@ -216,7 +214,7 @@ func (h *uhidHost) readLoop() {
 			if reportType == uhidReportOutput {
 				kind = HostOutputReport
 			}
-			if !h.emit(HostEvent{Kind: kind, Request: uint64(request), ReportID: reportID, Data: data}) {
+			if !h.emit(HostEvent{Kind: kind, Request: uint64(request), ReportID: reportID, Data: data, NeedsReply: true}) {
 				return
 			}
 		}

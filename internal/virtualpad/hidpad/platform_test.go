@@ -236,6 +236,52 @@ func (s *strictEventTransport) Read(p []byte) (int, error) {
 func (s *strictEventTransport) Write(p []byte) (int, error) { return len(p), nil }
 func (s *strictEventTransport) Close() error                { return nil }
 
+type blockingTransport struct {
+	mu      sync.Mutex
+	events  chan []byte
+	written []byte
+	closed  chan struct{}
+	once    sync.Once
+}
+
+func newBlockingTransport(events ...[]byte) *blockingTransport {
+	t := &blockingTransport{
+		events: make(chan []byte, len(events)+1),
+		closed: make(chan struct{}),
+	}
+	for _, event := range events {
+		t.events <- event
+	}
+	return t
+}
+
+func (t *blockingTransport) Read(p []byte) (int, error) {
+	select {
+	case event := <-t.events:
+		return copy(p, event), nil
+	case <-t.closed:
+		return 0, io.EOF
+	}
+}
+
+func (t *blockingTransport) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	t.written = append(t.written, p...)
+	t.mu.Unlock()
+	return len(p), nil
+}
+
+func (t *blockingTransport) Close() error {
+	t.once.Do(func() { close(t.closed) })
+	return nil
+}
+
+func (t *blockingTransport) snapshot() []byte {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]byte(nil), t.written...)
+}
+
 func testUHIDEvent(typ uint32, payload []byte) []byte {
 	buf := make([]byte, uhidEventSize)
 	binary.LittleEndian.PutUint32(buf, typ)
@@ -763,15 +809,16 @@ func TestUHIDHostCloseDestroys(t *testing.T) {
 }
 
 func TestUHIDOutputSetReportReplies(t *testing.T) {
-	transport := &captureTransport{reader: bytes.NewBuffer(nil)}
-	transport.reader.Write(literalUHIDEvent(uhidStart, nil))
 	set := make([]byte, 8)
 	binary.LittleEndian.PutUint32(set[0:4], 22)
 	set[4], set[5] = 0x02, uhidReportOutput
 	output := validOutputReport(9)
 	binary.LittleEndian.PutUint16(set[6:8], uint16(len(output)))
 	set = append(set, output...)
-	transport.reader.Write(literalUHIDEvent(uhidSetReport, set))
+	transport := newBlockingTransport(
+		literalUHIDEvent(uhidStart, nil),
+		literalUHIDEvent(uhidSetReport, set),
+	)
 
 	host := newUHIDHost(func() (io.ReadWriteCloser, error) { return transport, nil })
 	device, err := Open(DualSenseWired, Options{Host: host, ID: "pad2go-5e7"})

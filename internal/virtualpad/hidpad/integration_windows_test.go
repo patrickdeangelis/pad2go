@@ -6,9 +6,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"fmt"
-	"os"
-	"strings"
+	"runtime"
+	"syscall"
 	"testing"
 	"time"
 	"unsafe"
@@ -21,8 +20,14 @@ import (
 //
 //	go test -tags integration ./internal/virtualpad/hidpad -run TestWindowsIntegration -v
 func TestWindowsIntegration(t *testing.T) {
-	id := fmt.Sprintf("pad2go-%x", os.Getpid())
-	device, err := Open(DualSenseWired, Options{ID: id})
+	if runtime.GOARCH == "386" {
+		t.Skip("WinUHid does not support 386")
+	}
+	mac := []byte{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}
+	pairing := make([]byte, 20)
+	pairing[0] = 0x09
+	copy(pairing[1:7], mac)
+	device, err := Open(DualSenseWired, Options{Features: map[byte][]byte{0x09: pairing}})
 	if err != nil {
 		if errors.Is(err, ErrDriverMissing) || errors.Is(err, ErrPermission) {
 			t.Skipf("WinUHid not available: %v", err)
@@ -31,7 +36,7 @@ func TestWindowsIntegration(t *testing.T) {
 	}
 	defer device.Close()
 
-	handle := openHIDInterface(t, id, 0x054C, 0x0CE6)
+	handle := openHIDInterface(t, mac, 0x054C, 0x0CE6, 5*time.Second)
 	defer windows.CloseHandle(handle)
 	caps := hidCaps(t, handle)
 	if caps.InputReportByteLength != 64 || caps.OutputReportByteLength != 48 || caps.FeatureReportByteLength < 41 {
@@ -50,7 +55,7 @@ func TestWindowsIntegration(t *testing.T) {
 	}
 
 	for _, reportID := range []byte{0x05, 0x09, 0x20} {
-		feature := hidFeature(t, handle, int(caps.FeatureReportByteLength), reportID)
+		feature := hidFeatureOrFail(t, handle, 64, reportID)
 		if feature[0] != reportID {
 			t.Fatalf("feature 0x%02x returned report ID 0x%02x", reportID, feature[0])
 		}
@@ -60,8 +65,8 @@ func TestWindowsIntegration(t *testing.T) {
 				t.Fatalf("feature 0x05 calibration %x", feature[:41])
 			}
 		case 0x09:
-			if !validLocalUnicastMAC(feature[1:7]) {
-				t.Fatalf("feature 0x09 MAC %x is not a local unicast address", feature[1:7])
+			if !bytes.Equal(feature[1:7], mac) {
+				t.Fatalf("feature 0x09 MAC %x, want %x", feature[1:7], mac)
 			}
 		case 0x20:
 			if binary.LittleEndian.Uint32(feature[28:32]) != 0x15 {
@@ -73,23 +78,17 @@ func TestWindowsIntegration(t *testing.T) {
 	output := make([]byte, caps.OutputReportByteLength)
 	output[0], output[1], output[2], output[39] = 0x02, 0x03, 0x14, 0x04
 	output[3], output[4] = 0x22, 0x11
-	if ok, _, err := procHidDSetOutputReport.Call(uintptr(handle), uintptr(unsafe.Pointer(&output[0])), uintptr(len(output))); ok == 0 {
-		t.Fatalf("HidD_SetOutputReport: %v", err)
+	if err := writeHIDReport(handle, output); err != nil {
+		t.Fatalf("write output report: %v", err)
 	}
-	select {
-	case feedback := <-device.Feedback():
-		if !bytes.Equal(feedback.Raw, output) {
-			t.Fatalf("output feedback %x, want %x", feedback.Raw, output)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("no Feedback for the output report")
-	}
+	waitFeedback(t, device, output, 2*time.Second)
 
 	select {
 	case <-device.Done():
 		t.Fatal("device closed after a valid input report")
 	case <-time.After(100 * time.Millisecond):
 	}
+	assertCloseWithPendingRead(t, device, mac)
 }
 
 var (
@@ -104,9 +103,7 @@ var (
 	procHidDGetPreparsedData             = modHID.NewProc("HidD_GetPreparsedData")
 	procHidDFreePreparsedData            = modHID.NewProc("HidD_FreePreparsedData")
 	procHidPGetCaps                      = modHID.NewProc("HidP_GetCaps")
-	procHidDGetInputReport               = modHID.NewProc("HidD_GetInputReport")
 	procHidDGetFeature                   = modHID.NewProc("HidD_GetFeature")
-	procHidDSetOutputReport              = modHID.NewProc("HidD_SetOutputReport")
 )
 
 var hidInterfaceGUID = windows.GUID{
@@ -117,6 +114,7 @@ var hidInterfaceGUID = windows.GUID{
 const (
 	digcfPresent         = 0x02
 	digcfDeviceInterface = 0x10
+	hidpStatusSuccess    = 0x00110000
 )
 
 type spDeviceInterfaceData struct {
@@ -157,12 +155,25 @@ type hidpCaps struct {
 	NumberFeatureDataIndices  uint16
 }
 
-func openHIDInterface(t *testing.T, instanceID string, vendorID, productID uint16) windows.Handle {
+func openHIDInterface(t *testing.T, mac []byte, vendorID, productID uint16, timeout time.Duration) windows.Handle {
 	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if handle := findHIDInterface(mac, vendorID, productID); handle != 0 {
+			return handle
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no HID interface with MAC %x", mac)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func findHIDInterface(mac []byte, vendorID, productID uint16) windows.Handle {
 	guid := hidInterfaceGUID
-	set, _, err := procSetupDiGetClassDevsW.Call(uintptr(unsafe.Pointer(&guid)), 0, 0, digcfPresent|digcfDeviceInterface)
+	set, _, _ := procSetupDiGetClassDevsW.Call(uintptr(unsafe.Pointer(&guid)), 0, 0, digcfPresent|digcfDeviceInterface)
 	if set == uintptr(windows.InvalidHandle) {
-		t.Fatalf("SetupDiGetClassDevs: %v", err)
+		return 0
 	}
 	defer procSetupDiDestroyDeviceInfoList.Call(set)
 
@@ -170,7 +181,7 @@ func openHIDInterface(t *testing.T, instanceID string, vendorID, productID uint1
 		data := spDeviceInterfaceData{Size: uint32(unsafe.Sizeof(spDeviceInterfaceData{}))}
 		ok, _, _ := procSetupDiEnumDeviceInterfaces.Call(set, 0, uintptr(unsafe.Pointer(&guid)), uintptr(index), uintptr(unsafe.Pointer(&data)))
 		if ok == 0 {
-			break
+			return 0
 		}
 		var required uint32
 		procSetupDiGetDeviceInterfaceDetailW.Call(set, uintptr(unsafe.Pointer(&data)), 0, 0, uintptr(unsafe.Pointer(&required)), 0)
@@ -179,7 +190,7 @@ func openHIDInterface(t *testing.T, instanceID string, vendorID, productID uint1
 		}
 		buf := make([]byte, required)
 		detail := (*spDeviceInterfaceDetailData)(unsafe.Pointer(&buf[0]))
-		detail.Size = uint32(6)
+		detail.Size = 6
 		if unsafe.Sizeof(uintptr(0)) == 8 {
 			detail.Size = 8
 		}
@@ -188,39 +199,39 @@ func openHIDInterface(t *testing.T, instanceID string, vendorID, productID uint1
 			continue
 		}
 		path := windows.UTF16PtrToString(&detail.DevicePath[0])
-		if !strings.Contains(strings.ToLower(path), strings.ToLower(instanceID)) {
-			continue
-		}
 		pointer, err := windows.UTF16PtrFromString(path)
 		if err != nil {
-			t.Fatal(err)
+			continue
 		}
 		handle, err := windows.CreateFile(pointer, windows.GENERIC_READ|windows.GENERIC_WRITE,
-			windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, 0, 0)
+			windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OVERLAPPED, 0)
 		if err != nil {
-			t.Fatalf("open %s: %v", path, err)
+			continue
 		}
 		attrs := hidAttributes{Size: uint32(unsafe.Sizeof(hidAttributes{}))}
 		ok, _, _ = procHidDGetAttributes.Call(uintptr(handle), uintptr(unsafe.Pointer(&attrs)))
-		if ok == 0 || attrs.VendorID != vendorID || attrs.ProductID != productID {
+		if ok&0xff == 0 || attrs.VendorID != vendorID || attrs.ProductID != productID {
 			windows.CloseHandle(handle)
 			continue
 		}
-		return handle
+		feature, err := hidFeature(handle, 64, 0x09)
+		if err == nil && len(feature) >= 7 && bytes.Equal(feature[1:7], mac) {
+			return handle
+		}
+		windows.CloseHandle(handle)
 	}
-	t.Fatalf("no HID interface with instance ID %q", instanceID)
-	return 0
 }
 
 func hidCaps(t *testing.T, handle windows.Handle) hidpCaps {
 	t.Helper()
 	var preparsed uintptr
-	if ok, _, err := procHidDGetPreparsedData.Call(uintptr(handle), uintptr(unsafe.Pointer(&preparsed))); ok == 0 {
+	if ok, _, err := procHidDGetPreparsedData.Call(uintptr(handle), uintptr(unsafe.Pointer(&preparsed))); ok&0xff == 0 {
 		t.Fatalf("HidD_GetPreparsedData: %v", err)
 	}
 	defer procHidDFreePreparsedData.Call(preparsed)
 	var caps hidpCaps
-	if status, _, _ := procHidPGetCaps.Call(preparsed, uintptr(unsafe.Pointer(&caps))); status != 0 {
+	status, _, _ := procHidPGetCaps.Call(preparsed, uintptr(unsafe.Pointer(&caps)))
+	if uint32(status) != hidpStatusSuccess {
 		t.Fatalf("HidP_GetCaps status %#x", status)
 	}
 	return caps
@@ -229,24 +240,138 @@ func hidCaps(t *testing.T, handle windows.Handle) hidpCaps {
 func waitInputReport(t *testing.T, handle windows.Handle, size int, want []byte, timeout time.Duration) []byte {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
-	buf := make([]byte, size)
-	for time.Now().Before(deadline) {
-		buf[0] = reportInputID
-		if ok, _, _ := procHidDGetInputReport.Call(uintptr(handle), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf))); ok != 0 && bytes.Equal(buf, want) {
-			return append([]byte(nil), buf...)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			t.Fatalf("input report %x did not arrive within %s", want, timeout)
 		}
-		time.Sleep(20 * time.Millisecond)
+		wait := 500 * time.Millisecond
+		if remaining < wait {
+			wait = remaining
+		}
+		got, err := readHIDReport(handle, size, wait)
+		if err == nil && bytes.Equal(got, want) {
+			return got
+		}
+		if err != nil && !errors.Is(err, syscall.Errno(1460)) {
+			t.Logf("HID read: %v", err)
+		}
 	}
-	t.Fatalf("input report %x did not arrive within %s", want, timeout)
-	return nil
 }
 
-func hidFeature(t *testing.T, handle windows.Handle, size int, reportID byte) []byte {
+func waitFeedback(t *testing.T, device Device, want []byte, timeout time.Duration) {
 	t.Helper()
-	buf := make([]byte, size)
-	buf[0] = reportID
-	if ok, _, err := procHidDGetFeature.Call(uintptr(handle), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf))); ok == 0 {
+	deadline := time.After(timeout)
+	for {
+		select {
+		case feedback, ok := <-device.Feedback():
+			if !ok {
+				t.Fatal("Feedback closed before the output report arrived")
+			}
+			if bytes.Equal(feedback.Raw, want) {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("output report %x did not arrive on Feedback", want)
+		}
+	}
+}
+
+func assertCloseWithPendingRead(t *testing.T, device Device, mac []byte) {
+	t.Helper()
+	handle := openHIDInterface(t, mac, 0x054C, 0x0CE6, 2*time.Second)
+	defer windows.CloseHandle(handle)
+	for deadline := time.Now().Add(300 * time.Millisecond); time.Now().Before(deadline); {
+		_, _ = readHIDReport(handle, 64, 100*time.Millisecond)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = readHIDReport(handle, 64, 3*time.Second)
+	}()
+	time.Sleep(50 * time.Millisecond)
+	start := time.Now()
+	if err := device.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("Close with a pending HID read took %s", elapsed)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		// Closing the handle after this function unblocks the read.
+	}
+}
+
+func hidFeatureOrFail(t *testing.T, handle windows.Handle, size int, reportID byte) []byte {
+	t.Helper()
+	feature, err := hidFeature(handle, size, reportID)
+	if err != nil {
 		t.Fatalf("HidD_GetFeature(0x%02x): %v", reportID, err)
 	}
-	return buf
+	return feature
+}
+
+func hidFeature(handle windows.Handle, size int, reportID byte) ([]byte, error) {
+	buf := make([]byte, size)
+	buf[0] = reportID
+	ok, _, err := procHidDGetFeature.Call(uintptr(handle), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	if ok&0xff == 0 {
+		return nil, err
+	}
+	return buf, nil
+}
+
+func readHIDReport(handle windows.Handle, size int, timeout time.Duration) ([]byte, error) {
+	event, err := windows.CreateEvent(nil, 1, 0, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer windows.CloseHandle(event)
+	overlapped := windows.Overlapped{HEvent: event}
+	buf := make([]byte, size)
+	var returned uint32
+	err = windows.ReadFile(handle, buf, &returned, &overlapped)
+	if errors.Is(err, windows.ERROR_IO_PENDING) {
+		status, waitErr := windows.WaitForSingleObject(event, uint32(timeout/time.Millisecond))
+		if waitErr != nil {
+			return nil, waitErr
+		}
+		if status == uint32(windows.WAIT_TIMEOUT) {
+			_ = windows.CancelIoEx(handle, &overlapped)
+			_ = windows.GetOverlappedResult(handle, &overlapped, &returned, true)
+			return nil, syscall.Errno(1460)
+		}
+		err = windows.GetOverlappedResult(handle, &overlapped, &returned, false)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), buf[:returned]...), nil
+}
+
+func writeHIDReport(handle windows.Handle, report []byte) error {
+	event, err := windows.CreateEvent(nil, 1, 0, nil)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(event)
+	overlapped := windows.Overlapped{HEvent: event}
+	var written uint32
+	err = windows.WriteFile(handle, report, &written, &overlapped)
+	if errors.Is(err, windows.ERROR_IO_PENDING) {
+		status, waitErr := windows.WaitForSingleObject(event, 2000)
+		if waitErr != nil {
+			_ = windows.CancelIoEx(handle, &overlapped)
+			return waitErr
+		}
+		if status == uint32(windows.WAIT_TIMEOUT) {
+			_ = windows.CancelIoEx(handle, &overlapped)
+			_ = windows.GetOverlappedResult(handle, &overlapped, &written, true)
+			return syscall.Errno(1460)
+		}
+		err = windows.GetOverlappedResult(handle, &overlapped, &written, false)
+	}
+	return err
 }

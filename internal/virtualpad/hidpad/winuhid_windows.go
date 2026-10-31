@@ -139,20 +139,24 @@ func (h *winUHIDHost) StopEvents() error {
 	h.stopOnce.Do(func() {
 		h.mu.Lock()
 		done, handle, started, readerDone := h.done, h.handle, h.readerStarted, h.readerDone
+		h.closed = true
 		h.mu.Unlock()
 		if done != nil {
 			close(done)
 		}
 		if handle != 0 {
+			h.writeMu.Lock()
 			_ = windows.CancelIoEx(handle, nil)
-			_ = windows.CloseHandle(handle)
+			h.writeMu.Unlock()
 		}
 		if started {
 			<-readerDone
 		}
-		h.mu.Lock()
-		h.closed = true
-		h.mu.Unlock()
+		if handle != 0 {
+			h.writeMu.Lock()
+			_ = windows.CloseHandle(handle)
+			h.writeMu.Unlock()
+		}
 		h.closeEvents()
 	})
 	return nil
@@ -161,9 +165,6 @@ func (h *winUHIDHost) StopEvents() error {
 func (h *winUHIDHost) Close() error {
 	h.closeOnce.Do(func() {
 		_ = h.StopEvents()
-		h.mu.Lock()
-		h.closed = true
-		h.mu.Unlock()
 	})
 	return nil
 }
@@ -269,6 +270,8 @@ func winUHIDWrite(ctx context.Context, handle windows.Handle, report []byte) err
 		for {
 			status, waitErr := windows.WaitForSingleObject(event, 250)
 			if waitErr != nil {
+				_ = windows.CancelIoEx(handle, &overlapped)
+				_ = windows.GetOverlappedResult(handle, &overlapped, &written, true)
 				return waitErr
 			}
 			if status != uint32(windows.WAIT_TIMEOUT) {

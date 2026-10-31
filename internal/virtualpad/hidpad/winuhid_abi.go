@@ -138,10 +138,20 @@ func checkWinUHIDInterfaceVersion(version uint32) error {
 
 func winUHIDReadLoop(next func() ([]byte, error), events chan<- HostEvent, done <-chan struct{}, fail func(HostEvent, error)) error {
 	for {
+		select {
+		case <-done:
+			return nil
+		default:
+		}
 		buf, err := next()
 		if err != nil {
 			if winUHIDTimeout(err) {
-				continue
+				select {
+				case <-done:
+					return nil
+				default:
+					continue
+				}
 			}
 			return err
 		}

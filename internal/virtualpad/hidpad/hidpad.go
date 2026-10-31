@@ -88,6 +88,9 @@ type HostEvent struct {
 	// RequestedLength is the HID client's requested read length for
 	// GET_FEATURE/READ_REPORT; the host pads or truncates the reply to it.
 	RequestedLength uint32
+	// NeedsReply marks a request that must be answered even when Request is
+	// zero, such as an output-type SET_REPORT.
+	NeedsReply bool
 }
 
 // Host is the narrow seam between the report engine and an OS virtual-HID

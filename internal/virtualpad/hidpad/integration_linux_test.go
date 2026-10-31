@@ -24,13 +24,21 @@ func TestLinuxIntegration(t *testing.T) {
 		t.Skipf("/dev/uhid is not readable and writable: %v", err)
 	}
 	id := fmt.Sprintf("pad2go-%x", os.Getpid())
-	device, err := Open(DualSenseWired, Options{ID: id})
+	mac := []byte{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}
+	pairing := make([]byte, 20)
+	pairing[0] = 0x09
+	copy(pairing[1:7], mac)
+	device, err := Open(DualSenseWired, Options{
+		ID:       id,
+		Features: map[byte][]byte{0x09: pairing},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer device.Close()
 
-	hidDir := waitForHIDDevice(t, id, 3*time.Second)
+	uniq := fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5])
+	hidDir := waitForHIDDevice(t, uniq, 5*time.Second)
 	waitForInputDevices(t, hidDir, 3*time.Second)
 
 	raw := openHidraw(t, hidDir)
@@ -76,8 +84,7 @@ func waitForHIDDevice(t *testing.T, uniq string, timeout time.Duration) string {
 	for {
 		matches, _ := filepath.Glob("/sys/bus/hid/devices/0003:054C:0CE6.*")
 		for _, dir := range matches {
-			data, err := os.ReadFile(filepath.Join(dir, "uniq"))
-			if err == nil && strings.TrimSpace(string(data)) == uniq {
+			if hidDeviceMatches(dir, uniq) {
 				return dir
 			}
 		}
@@ -86,6 +93,29 @@ func waitForHIDDevice(t *testing.T, uniq string, timeout time.Duration) string {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+func hidDeviceMatches(dir, uniq string) bool {
+	if uevent, err := os.ReadFile(filepath.Join(dir, "uevent")); err == nil && ueventHasUniq(string(uevent), uniq) {
+		return true
+	}
+	paths, _ := filepath.Glob(filepath.Join(dir, "input", "input*", "uniq"))
+	for _, path := range paths {
+		if data, err := os.ReadFile(path); err == nil && strings.EqualFold(strings.TrimSpace(string(data)), uniq) {
+			return true
+		}
+	}
+	return false
+}
+
+func ueventHasUniq(uevent, uniq string) bool {
+	want := "HID_UNIQ=" + uniq
+	for _, line := range strings.Split(uevent, "\n") {
+		if strings.EqualFold(strings.TrimSpace(line), want) {
+			return true
+		}
+	}
+	return false
 }
 
 func waitForInputDevices(t *testing.T, hidDir string, timeout time.Duration) []string {
