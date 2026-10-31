@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/patrickdeangelis/pad2go/internal/config"
 	"github.com/patrickdeangelis/pad2go/internal/mapping"
@@ -133,6 +135,38 @@ func TestOutputRemapFramePadUsesSelectedOutput(t *testing.T) {
 	backend.pad.mu.Unlock()
 	if f.Player.Buttons != protocol.BtnA || f.Xbox.Buttons != mapping.XBB {
 		t.Fatalf("switch frame player=%v xbox=%04x", protocol.ButtonNames(f.Player.Buttons), f.Xbox.Buttons)
+	}
+}
+
+func TestOutputRemapUsesRequestedOutputWithoutBackend(t *testing.T) {
+	cfg := config.Default()
+	cfg.Output = "auto"
+	a := New(cfg, virtualpad.Null{}, nil, nil)
+	a.SetPool(virtualpad.NewPool(func(string) (virtualpad.Backend, error) {
+		return nil, errors.New("no driver")
+	}))
+	defer a.Close()
+	// Auto on a DualSense asks for the DualSense output even when the backend
+	// is missing, so the remap still reaches the input test and DSU.
+	a.SetOutputRemaps(map[string]map[string]string{"dualsense": {"B": "X", "HOME": "CAPT"}})
+	d := newDev("ds", 0)
+	d.kind = protocol.KindDualSense
+	if err := a.AddDevice(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	samples, cancel, err := a.Watch(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+	d.send(centered(protocol.BtnB | protocol.BtnHome))
+	select {
+	case sample := <-samples:
+		if sample.Xbox.Buttons != mapping.XBY|mapping.XBBack {
+			t.Fatalf("buttons %04x, want %04x", sample.Xbox.Buttons, mapping.XBY|mapping.XBBack)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no sample")
 	}
 }
 

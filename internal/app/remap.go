@@ -97,14 +97,39 @@ func (a *App) outputRemapsFor(output string) []outputRemap {
 	return compileOutputRemaps(global, perOutput)
 }
 
+// remapOutput is the output whose remap table applies to this slot. It is the
+// pad actually created, or, when no backend is available, the output the slot
+// asked for so remaps still show up in the input test and DSU. An explicit
+// motion-only choice keeps remaps off.
+func (s *slot) remapOutput(kind protocol.Kind) string {
+	if s.outputKind != "" && s.outputKind != virtualpad.OutputNone {
+		return s.outputKind
+	}
+	if s.outputOverride != "" {
+		return s.outputOverride
+	}
+	switch def := s.app.DefaultOutput(); def {
+	case virtualpad.OutputNone:
+		return virtualpad.OutputNone
+	case virtualpad.OutputAuto, "":
+		if kind == protocol.KindDualSense {
+			return virtualpad.OutputDualSense
+		}
+		return virtualpad.OutputXbox
+	default:
+		return def
+	}
+}
+
 // applyOutputRemaps rewrites the frame's protocol buttons and rebuilds the
 // Xbox report from them, so every virtual output and the input test see the
 // same remapped result.
 func (s *slot) applyOutputRemaps(f mapping.Frame, kind protocol.Kind) mapping.Frame {
-	if s.outputKind == "" || s.outputKind == virtualpad.OutputNone {
+	output := s.remapOutput(kind)
+	if output == "" || output == virtualpad.OutputNone {
 		return f
 	}
-	remaps := s.app.outputRemapsFor(s.outputKind)
+	remaps := s.app.outputRemapsFor(output)
 	if len(remaps) == 0 {
 		return f
 	}
