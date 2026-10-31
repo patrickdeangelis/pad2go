@@ -75,11 +75,9 @@ no working ViGEmBus is found (`pad2go check`), the bundled
 [ViGEmBus](https://github.com/nefarius/ViGEmBus) 1.22.0 driver. Uninstalling
 Pad2Go leaves ViGEmBus in place for other apps.
 
-With the standalone `pad2go.exe` (zip), install ViGEmBus yourself. The
-"Virtual Gamepad Emulation Bus G2" (Nefarius VirtualPad, installed by apps
-such as DSX) is a different driver and does not replace it. Without ViGEmBus,
-controllers still connect, for the input test and DSU motion, but games don't
-see an Xbox controller.
+With the standalone `pad2go.exe` (zip), install ViGEmBus yourself. Without
+ViGEmBus, controllers still connect for the input test and DSU motion, but
+games don't see an Xbox controller.
 
 Hide the physical controller from games with HidHide if you see doubled input.
 
