@@ -2,8 +2,19 @@
 
 package hidpad
 
-import "fmt"
+import (
+	"io"
+	"os"
+)
 
 func openPlatformHost() (Host, error) {
-	return nil, fmt.Errorf("%w: /dev/uhid transport is not implemented in this slice", ErrUnsupported)
+	return newUHIDHost(openUHIDDevice), nil
+}
+
+func openUHIDDevice() (io.ReadWriteCloser, error) {
+	f, err := os.OpenFile("/dev/uhid", os.O_RDWR, 0)
+	if err != nil {
+		return nil, classifyUHIDOpenError(err)
+	}
+	return f, nil
 }

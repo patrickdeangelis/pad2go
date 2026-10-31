@@ -74,6 +74,7 @@ type HostEventKind uint8
 
 const (
 	HostOutputReport HostEventKind = iota + 1
+	HostGetInput
 	HostGetFeature
 	HostSetFeature
 )
@@ -314,6 +315,10 @@ func (d *device) handleEvent(event HostEvent) error {
 			Data:     append([]byte(nil), event.Data...),
 		})
 		return nil
+	case HostGetInput:
+		d.mu.Lock()
+		response = append([]byte(nil), d.last...)
+		d.mu.Unlock()
 	case HostGetFeature:
 		reportID := eventReportID(event)
 		response, completionErr = featureReply(reportID, d.features())
