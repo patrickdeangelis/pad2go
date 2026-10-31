@@ -3,6 +3,7 @@
 package hid
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -16,7 +17,6 @@ var (
 	setup             = windows.NewLazySystemDLL("setupapi.dll")
 	hidDLL            = windows.NewLazySystemDLL("hid.dll")
 	procGetGUID       = hidDLL.NewProc("HidD_GetHidGuid")
-	procGetAttrs      = hidDLL.NewProc("HidD_GetAttributes")
 	procGetFeature    = hidDLL.NewProc("HidD_GetFeature")
 	procGetPreparsed  = hidDLL.NewProc("HidD_GetPreparsedData")
 	procFreePreparsed = hidDLL.NewProc("HidD_FreePreparsedData")
@@ -37,10 +37,6 @@ type guid struct {
 	Data1        uint32
 	Data2, Data3 uint16
 	Data4        [8]byte
-}
-type attrs struct {
-	Size                     uint32
-	Vendor, Product, Version uint16
 }
 type ifaceData struct {
 	Size     uint32
@@ -144,12 +140,16 @@ func (t *winTransport) Feature(id byte, size int) ([]byte, error) {
 	return b, nil
 }
 
-func (t *winTransport) Read(b []byte) (int, error) {
+func (t *winTransport) Read(b []byte) (count int, retErr error) {
 	event, err := windows.CreateEvent(nil, 1, 0, nil)
 	if err != nil {
 		return 0, err
 	}
-	defer windows.CloseHandle(event)
+	defer func() {
+		if closeErr := windows.CloseHandle(event); retErr == nil {
+			retErr = closeErr
+		}
+	}()
 	o := windows.Overlapped{HEvent: event}
 	var n uint32
 	t.mu.Lock()
@@ -160,7 +160,7 @@ func (t *winTransport) Read(b []byte) (int, error) {
 		readBuf = make([]byte, inputLen)
 	}
 	err = windows.ReadFile(h, readBuf, &n, &o)
-	if err == windows.ERROR_IO_PENDING {
+	if errors.Is(err, windows.ERROR_IO_PENDING) {
 		err = windows.GetOverlappedResult(h, &o, &n, true)
 	}
 	if len(readBuf) != len(b) {
@@ -171,12 +171,16 @@ func (t *winTransport) Read(b []byte) (int, error) {
 	}
 	return int(n), err
 }
-func (t *winTransport) Write(b []byte) error {
+func (t *winTransport) Write(b []byte) (retErr error) {
 	event, err := windows.CreateEvent(nil, 1, 0, nil)
 	if err != nil {
 		return err
 	}
-	defer windows.CloseHandle(event)
+	defer func() {
+		if closeErr := windows.CloseHandle(event); retErr == nil {
+			retErr = closeErr
+		}
+	}()
 	o := windows.Overlapped{HEvent: event}
 	var n uint32
 	t.mu.Lock()
@@ -188,7 +192,7 @@ func (t *winTransport) Write(b []byte) error {
 		b = padded
 	}
 	err = windows.WriteFile(h, b, &n, &o)
-	if err == windows.ERROR_IO_PENDING {
+	if errors.Is(err, windows.ERROR_IO_PENDING) {
 		err = windows.GetOverlappedResult(h, &o, &n, true)
 	}
 	return err

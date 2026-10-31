@@ -5,5 +5,5 @@ package ui
 import "errors"
 
 func openBluetoothSettings() error {
-	return errors.New("Bluetooth settings shortcut is only available on Windows")
+	return errors.New("bluetooth settings shortcut is only available on Windows")
 }

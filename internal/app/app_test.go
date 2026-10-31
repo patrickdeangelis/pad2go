@@ -578,12 +578,12 @@ func TestDualSenseReplugKeepsSlot(t *testing.T) {
 	if err := a.AddDevice(context.Background(), newDev("p1", protocol.ProController2PID)); err != nil {
 		t.Fatal(err)
 	}
-	d := dual(t, a, "d")
+	dual(t, a, "d")
 	if playerOf(a, "d") != 2 {
 		t.Fatal("not in slot 2")
 	}
 	_ = a.Disconnect(2)
-	d = dual(t, a, "d")
+	d := dual(t, a, "d")
 	if playerOf(a, "d") != 2 {
 		t.Fatal("slot not remembered")
 	}
@@ -592,7 +592,7 @@ func TestDualSenseReplugKeepsSlot(t *testing.T) {
 	if err := a.AddDevice(context.Background(), newDev("p2", protocol.ProController2PID)); err != nil {
 		t.Fatal(err)
 	}
-	d = dual(t, a, "d")
+	dual(t, a, "d")
 	if playerOf(a, "d") != 3 {
 		t.Fatalf("occupied remembered slot should fall back to lowest free, got %d", playerOf(a, "d"))
 	}
@@ -602,7 +602,7 @@ func TestDualSenseNeverMerged(t *testing.T) {
 	if err := a.AddDevice(context.Background(), newDev("p", protocol.ProController2PID)); err != nil {
 		t.Fatal(err)
 	}
-	d := dual(t, a, "d")
+	dual(t, a, "d")
 	if playerOf(a, "d") == playerOf(a, "p") {
 		t.Fatal("merged with Pro")
 	}
@@ -610,7 +610,7 @@ func TestDualSenseNeverMerged(t *testing.T) {
 	if err := a.AddDevice(context.Background(), newDev("left", protocol.JoyCon2LeftPID)); err != nil {
 		t.Fatal(err)
 	}
-	d = dual(t, a, "d2")
+	d := dual(t, a, "d2")
 	if playerOf(a, "d2") == playerOf(a, "left") {
 		t.Fatal("merged with Joy-Con")
 	}
