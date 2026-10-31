@@ -6,17 +6,22 @@
 > related names are trademarks of Nintendo, used here only to describe
 > compatibility.
 
-A Go port of [TommyWabg/Switch2Connect](https://github.com/TommyWabg/Switch2Connect):
-connect **Switch 2 Joy-Cons**, the **Switch 2 Pro Controller** and the **NSO
-GameCube Controller** to a PC over Bluetooth LE and use them as virtual **Xbox
-360 controllers**, with an optional **CemuHook/DSU** motion server for emulators.
-**PlayStation 5 DualSense** controllers are also supported on Windows over USB
-or Bluetooth.
+pad2go is a controller bridge and desktop app written in Go. Connect **Switch 2
+Joy-Cons**, the **Switch 2 Pro Controller** and the **NSO GameCube Controller**
+over Bluetooth LE, or use a **PlayStation 5 DualSense** over USB or Bluetooth
+on Windows. pad2go provides virtual **Xbox 360** output, button remapping,
+rumble and an optional **CemuHook/DSU** motion server for emulators.
+
+The project began as a Go port of
+[TommyWabg/Switch2Connect](https://github.com/TommyWabg/Switch2Connect) and has
+grown beyond that starting point with PlayStation support and a cross-platform
+desktop app.
 
 It is a single static binary with no Python runtime. It also runs on Linux
 (uinput) as well as Windows (ViGEmBus), and the DSU server works on macOS too.
 
-Ported from upstream commit `e5dd90b` (2026-09-13).
+Its initial implementation was based on upstream commit `e5dd90b`
+(2026-09-13).
 
 ## Quick start
 
@@ -151,7 +156,7 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 | `gyro_passthrough_mode` | `Cemuhook` enables the DSU server (`cemuhook_host`, `cemuhook_port`) |
 | `home_mapping`, `capt_mapping`, `c_mapping`, `gl_mapping`, `gr_mapping`, `sll/srl/slr/srr_mapping` | `Default`, `None`, or a Switch button name |
 
-## What was ported
+## Controller and output support
 
 | Feature | Status |
 | --- | --- |
@@ -164,7 +169,7 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 | Player LEDs, connection haptics | ✅ |
 | Joy-Con merging, vertical/horizontal single Joy-Con | ✅ |
 | Xbox 360 output via ViGEmBus (Windows) | ✅ |
-| Xbox 360 output via uinput (Linux) — new in this port | ✅ |
+| Xbox 360 output via uinput (Linux) | ✅ |
 | Game rumble → HD rumble (LF/HF, strength, delay) | ✅ (basic mapping) |
 | CemuHook/DSU motion server | ✅ |
 | Extra-button remaps to controller buttons | ✅ |
@@ -174,9 +179,10 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 | ESP32-S3 bridge, wired USB | ❌ |
 | Profiles, power saving, auto-disconnect, GUI/tray | ❌ |
 
-The original is ~58k lines of Windows-specific Python. This port covers the
-controller protocol and the Xbox path. The drivers, firmware and Windows
-integrations above are left out.
+The original is ~58k lines of Windows-specific Python. pad2go implements the
+controller protocols, virtual Xbox output and DSU motion, and adds PlayStation
+support and a cross-platform desktop app. Some original Windows-specific
+drivers, firmware and integrations remain out of scope.
 
 ### Behavioural differences
 
