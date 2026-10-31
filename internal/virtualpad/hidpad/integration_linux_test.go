@@ -4,6 +4,7 @@ package hidpad
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -24,6 +25,10 @@ func TestLinuxIntegration(t *testing.T) {
 
 	if err := device.SubmitReport(neutralReport()); err != nil {
 		t.Fatalf("submit input report: %v", err)
+	}
+	time.Sleep(750 * time.Millisecond)
+	if matches, _ := filepath.Glob("/sys/bus/hid/devices/0003:054C:0CE6.*"); len(matches) == 0 {
+		t.Fatalf("hid-playstation did not bind the virtual DualSense")
 	}
 	select {
 	case <-device.Done():

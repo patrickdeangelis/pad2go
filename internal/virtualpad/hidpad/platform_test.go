@@ -5,10 +5,10 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -26,7 +26,7 @@ func (c *captureTransport) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 func (c *captureTransport) Read(p []byte) (int, error) { return c.reader.Read(p) }
-func (c *captureTransport) Close() error              { return nil }
+func (c *captureTransport) Close() error               { return nil }
 
 func lastUHIDEvent(t *testing.T, written []byte) (uint32, []byte) {
 	t.Helper()
@@ -67,20 +67,20 @@ func TestUHIDCodec(t *testing.T) {
 	if got := binary.LittleEndian.Uint16(payload[256:258]); got != 273 {
 		t.Errorf("rd_size %d, want 273", got)
 	}
-	if !bytes.Equal(payload[258:258+273], descriptor) {
-		t.Error("descriptor bytes were not copied")
-	}
-	if got := binary.LittleEndian.Uint32(payload[4354:4358]); got != uhidBusUSB {
+	if got := binary.LittleEndian.Uint16(payload[258:260]); got != uint16(uhidBusUSB) {
 		t.Errorf("bus %d, want %d", got, uhidBusUSB)
 	}
-	if got := binary.LittleEndian.Uint32(payload[4358:4362]); got != 0x054C {
+	if got := binary.LittleEndian.Uint32(payload[260:264]); got != 0x054C {
 		t.Errorf("vendor %#x, want 0x054C", got)
 	}
-	if got := binary.LittleEndian.Uint32(payload[4362:4366]); got != 0x0CE6 {
+	if got := binary.LittleEndian.Uint32(payload[264:268]); got != 0x0CE6 {
 		t.Errorf("product %#x, want 0x0CE6", got)
 	}
-	if got := binary.LittleEndian.Uint32(payload[4366:4370]); got != 0x0100 {
+	if got := binary.LittleEndian.Uint32(payload[268:272]); got != 0x0100 {
 		t.Errorf("version %#x, want 0x0100", got)
+	}
+	if !bytes.Equal(payload[276:276+273], descriptor) {
+		t.Error("descriptor bytes were not copied at offset 276")
 	}
 
 	report := make([]byte, 64)
@@ -159,6 +159,51 @@ func TestUHIDCodec(t *testing.T) {
 		t.Fatalf("decode set: %d %#x %x %v", request, reportID, data, err)
 	}
 }
+
+func TestUHIDSingleEventRead(t *testing.T) {
+	transport := &strictEventTransport{
+		events: [][]byte{
+			testUHIDEvent(uhidOutput, append([]byte{0x01, 0x02}, make([]byte, 4097)...)),
+			testUHIDEvent(uhidGetReport, append([]byte{7, 0, 0, 0}, []byte{0x05, uhidReportFeature}...)),
+		},
+	}
+	codec := &uhidCodec{rw: transport}
+	for i, want := range []uint32{uhidOutput, uhidGetReport} {
+		typ, payload, err := codec.read()
+		if err != nil {
+			t.Fatalf("read %d: %v", i, err)
+		}
+		if typ != want {
+			t.Fatalf("read %d type %d, want %d", i, typ, want)
+		}
+		if len(payload) != uhidEventSize-4 {
+			t.Fatalf("read %d payload %d, want %d", i, len(payload), uhidEventSize-4)
+		}
+	}
+	if transport.reads != 2 {
+		t.Fatalf("transport reads %d, want one per event", transport.reads)
+	}
+}
+
+type strictEventTransport struct {
+	events [][]byte
+	reads  int
+}
+
+func (s *strictEventTransport) Read(p []byte) (int, error) {
+	if len(p) != uhidEventSize {
+		return 0, fmt.Errorf("read buffer %d, want exactly one %d-byte event", len(p), uhidEventSize)
+	}
+	if s.reads >= len(s.events) {
+		return 0, io.EOF
+	}
+	n := copy(p, s.events[s.reads])
+	s.reads++
+	return n, nil
+}
+
+func (s *strictEventTransport) Write(p []byte) (int, error) { return len(p), nil }
+func (s *strictEventTransport) Close() error                { return nil }
 
 func testUHIDEvent(typ uint32, payload []byte) []byte {
 	buf := make([]byte, uhidEventSize)
@@ -263,7 +308,7 @@ func TestWinUHIDABI(t *testing.T) {
 	if got := winUHIDGetInterfaceVersion; got != 0x00222024 {
 		t.Errorf("GET_INTERFACE_VERSION %#x, want 0x00222024", got)
 	}
-	cfg := HostConfig{VendorID: 0x054C, ProductID: 0x0CE6, Version: 0x0100, Descriptor: make([]byte, 273), SupportedEvents: supportedHostEvents, ReadReportPeriodUs: 250}
+	cfg := HostConfig{VendorID: 0x054C, ProductID: 0x0CE6, Version: 0x0100, Descriptor: make([]byte, 273), SupportedEvents: supportedHostEvents}
 	if got := winUHIDSetDeviceInfo; got != 0x0022A000 {
 		t.Errorf("SET_DEVICE_INFO %#x, want 0x0022A000", got)
 	}
@@ -277,8 +322,8 @@ func TestWinUHIDABI(t *testing.T) {
 		t.Errorf("COMPLETE_READ_EVENT %#x, want 0x0022A020", got)
 	}
 	info := encodeWinUHIDDeviceInfo(cfg)
-	if len(info) != 30 {
-		t.Fatalf("device info size %d, want 30", len(info))
+	if len(info) != 32 {
+		t.Fatalf("device info size %d, want 32", len(info))
 	}
 	if binary.LittleEndian.Uint32(info[0:4]) != winUHIDVersion || binary.LittleEndian.Uint32(info[4:8]) != supportedHostEvents {
 		t.Error("device info header fields are wrong")
@@ -286,23 +331,8 @@ func TestWinUHIDABI(t *testing.T) {
 	if binary.LittleEndian.Uint16(info[8:10]) != 0x054C || binary.LittleEndian.Uint16(info[10:12]) != 0x0CE6 || binary.LittleEndian.Uint16(info[12:14]) != 0x0100 {
 		t.Error("device info IDs are wrong")
 	}
-	packed := encodeWinUHIDConfig(cfg)
-	wantSize := 56
-	if strconv.IntSize == 32 {
-		wantSize = 44
-	}
-	if len(packed) != wantSize {
-		t.Fatalf("config size %d, want %d", len(packed), wantSize)
-	}
-	if binary.LittleEndian.Uint16(packed[10:12]) != 273 {
-		t.Errorf("config descriptor length %d, want 273", binary.LittleEndian.Uint16(packed[10:12]))
-	}
-	periodOffset := 52
-	if strconv.IntSize == 32 {
-		periodOffset = 40
-	}
-	if binary.LittleEndian.Uint32(packed[periodOffset:periodOffset+4]) != 250 {
-		t.Errorf("config period %d, want 250", binary.LittleEndian.Uint32(packed[periodOffset:periodOffset+4]))
+	if !bytes.Equal(info[16:32], make([]byte, 16)) {
+		t.Error("device info ContainerId is not zero at offset 16")
 	}
 	if err := checkWinUHIDInterfaceVersion(0); !errors.Is(err, ErrUnsupported) {
 		t.Errorf("interface version 0 -> %v, want ErrUnsupported", err)
@@ -328,6 +358,16 @@ func TestWinUHIDABI(t *testing.T) {
 	decoded, err := decodeWinUHIDEvent(raw)
 	if err != nil || decoded.Kind != HostOutputReport || decoded.Request != 12 || decoded.ReportID != 0x02 || !bytes.Equal(decoded.Data, []byte{0x02, 1, 2, 3}) {
 		t.Fatalf("decode event: %+v %v", decoded, err)
+	}
+
+	readRaw := make([]byte, 14)
+	binary.LittleEndian.PutUint32(readRaw[0:4], winUHIDEventGetFeature)
+	binary.LittleEndian.PutUint32(readRaw[4:8], 21)
+	readRaw[8] = 0x05
+	binary.LittleEndian.PutUint32(readRaw[9:13], 41)
+	readEvent, err := decodeWinUHIDEvent(readRaw)
+	if err != nil || readEvent.Kind != HostGetFeature || readEvent.Request != 21 || readEvent.ReportID != 0x05 || readEvent.RequestedLength != 41 || len(readEvent.Data) != 0 {
+		t.Fatalf("decode read event: %+v %v", readEvent, err)
 	}
 }
 
@@ -402,6 +442,174 @@ func TestCloseDrainsLateHostEvent(t *testing.T) {
 	}
 }
 
+func TestSubmitErrorIsNotClosed(t *testing.T) {
+	host := newFakeHost()
+	device, err := Open(DualSenseWired, Options{Host: host})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer device.Close()
+	host.mu.Lock()
+	host.submitErr = errors.New("boom")
+	host.mu.Unlock()
+	err = device.SubmitReport(neutralReport())
+	if errors.Is(err, ErrClosed) {
+		t.Fatalf("submit error %v must not be ErrClosed", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("submit error %v, want the host cause", err)
+	}
+	select {
+	case <-device.Done():
+		t.Fatal("failed submit closed the device")
+	default:
+	}
+}
+
+func TestConcurrentSubmitClose(t *testing.T) {
+	for round := 0; round < 50; round++ {
+		host := newFakeHost()
+		device, err := Open(DualSenseWired, Options{Host: host})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = device.SubmitReport(neutralReport())
+			}()
+		}
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = device.Close()
+			}()
+		}
+		wg.Wait()
+	}
+}
+
+func TestConcurrentEmitClose(t *testing.T) {
+	for round := 0; round < 25; round++ {
+		host := newEmittingHost()
+		device, err := Open(DualSenseWired, Options{Host: host})
+		if err != nil {
+			t.Fatal(err)
+		}
+		report := validOutputReport(1)
+		var wg sync.WaitGroup
+		for i := 0; i < 4; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for {
+					select {
+					case <-device.Done():
+						return
+					case <-host.stop:
+						return
+					case host.events <- HostEvent{Kind: HostOutputReport, ReportID: 0x02, Data: report}:
+					}
+				}
+			}()
+		}
+		for i := 0; i < 4; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = device.SubmitReport(neutralReport())
+			}()
+		}
+		for i := 0; i < 4; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = device.Close()
+			}()
+		}
+		wg.Wait()
+	}
+}
+
+type emittingHost struct {
+	events chan HostEvent
+	stop   chan struct{}
+	once   sync.Once
+}
+
+func newEmittingHost() *emittingHost {
+	return &emittingHost{events: make(chan HostEvent, 32), stop: make(chan struct{})}
+}
+
+func (h *emittingHost) Start(context.Context, HostConfig) error { return nil }
+func (h *emittingHost) Events() <-chan HostEvent                { return h.events }
+func (h *emittingHost) SubmitReport(context.Context, []byte) error {
+	return nil
+}
+func (h *emittingHost) Complete(context.Context, HostEvent, []byte, error) error { return nil }
+func (h *emittingHost) StopEvents() error {
+	h.once.Do(func() { close(h.stop) })
+	return nil
+}
+func (h *emittingHost) Close() error {
+	_ = h.StopEvents()
+	return nil
+}
+
+func TestUHIDHostRequestKinds(t *testing.T) {
+	transport := &captureTransport{reader: bytes.NewBuffer(nil)}
+	write := func(typ uint32, payload []byte) {
+		transport.reader.Write(testUHIDEvent(typ, payload))
+	}
+	write(uhidStart, nil)
+
+	get := make([]byte, 8)
+	binary.LittleEndian.PutUint32(get[0:4], 21)
+	get[4], get[5] = 0x01, uhidReportInput
+	write(uhidGetReport, get)
+
+	set := make([]byte, 10)
+	binary.LittleEndian.PutUint32(set[0:4], 22)
+	set[4], set[5] = 0x02, uhidReportOutput
+	binary.LittleEndian.PutUint16(set[6:8], 1)
+	set[8] = 0x02
+	write(uhidSetReport, set)
+
+	host := newUHIDHost(func() (io.ReadWriteCloser, error) { return transport, nil })
+	if err := host.Start(context.Background(), HostConfig{
+		Name: "DualSense", Phys: "pad2go/uhid", ID: "pad2go-test",
+		VendorID: 0x054C, ProductID: 0x0CE6, Version: 0x0100,
+		Descriptor: []byte{0x05, 0x01},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	defer host.Close()
+
+	seen := make(map[HostEventKind]HostEvent)
+	for len(seen) < 2 {
+		select {
+		case event, ok := <-host.Events():
+			if !ok {
+				t.Fatalf("host event stream closed with %+v", seen)
+			}
+			seen[event.Kind] = event
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for host events; got %+v", seen)
+		}
+	}
+	input, ok := seen[HostGetInput]
+	if !ok || input.Request != 21 || input.ReportID != 0x01 {
+		t.Fatalf("input GET_REPORT mapped to %+v (present %t)", input, ok)
+	}
+	output, ok := seen[HostOutputReport]
+	if !ok || output.Request != 22 || output.ReportID != 0x02 || !bytes.Equal(output.Data, []byte{0x02}) {
+		t.Fatalf("output SET_REPORT mapped to %+v (present %t)", output, ok)
+	}
+}
+
 func TestCloseDrainsPendingEvents(t *testing.T) {
 	host := newFakeHost()
 	host.emit(HostEvent{Kind: HostGetFeature, Request: 9, ReportID: 0x05})
@@ -443,6 +651,30 @@ func winUHIDTestEvent(eventType uint32, request uint32, reportID byte, data []by
 	return raw
 }
 
+func TestWinUHIDBadWriteCompletes(t *testing.T) {
+	raw := winUHIDTestEvent(winUHIDEventWriteReport, 31, 0x02, []byte{0x02})
+	binary.LittleEndian.PutUint32(raw[9:13], 4096) // claims more data than the driver sent
+	calls := 0
+	next := func() ([]byte, error) {
+		calls++
+		if calls == 1 {
+			return raw, nil
+		}
+		return nil, io.EOF
+	}
+	var failed HostEvent
+	var failedErr error
+	err := winUHIDReadLoop(next, make(chan HostEvent, 1), make(chan struct{}), func(event HostEvent, err error) {
+		failed, failedErr = event, err
+	})
+	if !errors.Is(err, ErrBadReport) {
+		t.Fatalf("read loop returned %v, want ErrBadReport", err)
+	}
+	if failedErr == nil || failed.Kind != HostOutputReport || failed.Request != 31 || failed.ReportID != 0x02 {
+		t.Fatalf("failed request was not completed: %+v %v", failed, failedErr)
+	}
+}
+
 func TestWinUHIDTimeoutNonFatal(t *testing.T) {
 	calls := 0
 	next := func() ([]byte, error) {
@@ -458,7 +690,7 @@ func TestWinUHIDTimeoutNonFatal(t *testing.T) {
 	}
 	events := make(chan HostEvent, 1)
 	done := make(chan struct{})
-	err := winUHIDReadLoop(next, events, done)
+	err := winUHIDReadLoop(next, events, done, nil)
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("read loop returned %v, want io.EOF", err)
 	}

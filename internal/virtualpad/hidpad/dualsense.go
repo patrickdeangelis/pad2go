@@ -86,7 +86,7 @@ func reserveMAC(id string, mac []byte) error {
 	identities.Lock()
 	defer identities.Unlock()
 	if owner, exists := identities.macs[key]; exists && owner != id {
-		return fmt.Errorf("%w: MAC is already assigned to %q", ErrBadFeature, owner)
+		return fmt.Errorf("%w: MAC is already assigned", ErrBadFeature)
 	}
 	identities.macs[key] = id
 	return nil

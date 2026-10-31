@@ -127,7 +127,7 @@ func (h *winUHIDHost) Complete(_ context.Context, event HostEvent, data []byte, 
 	}
 	switch event.Kind {
 	case HostGetInput, HostGetFeature:
-		return h.ioctlHandle(handle, winUHIDCompleteReadEvent, encodeWinUHIDCompleteRead(uint32(event.Request), status, data), nil)
+		return h.ioctlHandle(handle, winUHIDCompleteReadEvent, encodeWinUHIDCompleteRead(uint32(event.Request), status, fitReadData(data, event.RequestedLength)), nil)
 	case HostSetFeature, HostOutputReport:
 		return h.ioctlHandle(handle, winUHIDCompleteWriteEvent, encodeWinUHIDCompleteWrite(uint32(event.Request), status), nil)
 	default:
@@ -177,7 +177,9 @@ func (h *winUHIDHost) readLoop() {
 	h.mu.Unlock()
 	if err := winUHIDReadLoop(func() ([]byte, error) {
 		return winUHIDNextEvent(handle)
-	}, h.events, h.done); err != nil {
+	}, h.events, h.done, func(event HostEvent, err error) {
+		_ = h.Complete(context.Background(), event, nil, err)
+	}); err != nil {
 		h.mu.Lock()
 		h.readErr = err
 		h.mu.Unlock()
@@ -238,7 +240,9 @@ func winUHIDNextEvent(handle windows.Handle) ([]byte, error) {
 		}
 		if status == uint32(windows.WAIT_TIMEOUT) {
 			_ = windows.CancelIoEx(handle, &overlapped)
-			_ = windows.GetOverlappedResult(handle, &overlapped, &returned, true)
+			if err := windows.GetOverlappedResult(handle, &overlapped, &returned, true); err == nil && returned > 0 {
+				return buf[:returned], nil
+			}
 			return nil, syscall.Errno(1460)
 		}
 		err = windows.GetOverlappedResult(handle, &overlapped, &returned, false)

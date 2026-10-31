@@ -67,7 +67,6 @@ type HostConfig struct {
 	NeutralReport   []byte
 	Features        map[byte][]byte
 	SupportedEvents uint32
-	ReadReportPeriodUs uint32
 }
 
 // HostEventKind identifies a request from the operating-system HID host.
@@ -86,6 +85,9 @@ type HostEvent struct {
 	Request  uint64
 	ReportID byte
 	Data     []byte
+	// RequestedLength is the HID client's requested read length for
+	// GET_FEATURE/READ_REPORT; the host pads or truncates the reply to it.
+	RequestedLength uint32
 }
 
 // Host is the narrow seam between the report engine and an OS virtual-HID
@@ -217,7 +219,6 @@ func (d *device) SubmitReport(report []byte) error {
 		return err
 	}
 	d.submits.Add(1)
-	d.last = append(d.last[:0], copyOfReport...)
 	d.mu.Unlock()
 	defer d.submits.Done()
 
@@ -230,10 +231,16 @@ func (d *device) SubmitReport(report []byte) error {
 		}
 		return fmt.Errorf("submit input report: %w", err)
 	}
+	d.mu.Lock()
+	d.last = append(d.last[:0], copyOfReport...)
+	d.mu.Unlock()
 	return nil
 }
 
 func (d *device) submitErrorLocked() error {
+	if !d.closed {
+		return nil
+	}
 	if d.failureErr != nil {
 		return d.failureErr
 	}

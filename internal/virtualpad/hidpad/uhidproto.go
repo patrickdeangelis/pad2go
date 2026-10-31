@@ -9,9 +9,10 @@ import (
 )
 
 // Linux UHID UAPI (`include/uapi/linux/uhid.h`). The event is a u32 type
-// followed by a fixed 4380-byte union, so a whole event is 4384 bytes.
+// followed by a fixed 4372-byte union, so a whole event is 4376 bytes. The
+// kernel returns exactly one whole event per read() and drops any excess.
 const (
-	uhidEventSize = 4384
+	uhidEventSize = 4376
 	uhidDataMax   = 4096
 
 	uhidDestroy        uint32 = 1
@@ -52,10 +53,17 @@ func (c *uhidCodec) write(typ uint32, payload []byte) error {
 	return err
 }
 
+// read consumes exactly one event with a single read. uhid_char_read returns
+// one 4376-byte event per call and discards anything beyond the caller's
+// buffer, so a second read would desynchronize or drop the next event.
 func (c *uhidCodec) read() (uint32, []byte, error) {
 	buf := make([]byte, uhidEventSize)
-	if _, err := io.ReadFull(c.rw, buf); err != nil {
+	n, err := c.rw.Read(buf)
+	if err != nil {
 		return 0, nil, err
+	}
+	if n != uhidEventSize {
+		return 0, nil, fmt.Errorf("%w: got %d bytes, want %d", errShortUHIDEvent, n, uhidEventSize)
 	}
 	return binary.LittleEndian.Uint32(buf), buf[4:], nil
 }
@@ -67,17 +75,17 @@ func (c *uhidCodec) createDevice(cfg HostConfig) error {
 	if len(cfg.Descriptor) == 0 || len(cfg.Descriptor) > uhidDataMax {
 		return fmt.Errorf("%w: UHID report descriptor length %d", ErrBadFeature, len(cfg.Descriptor))
 	}
-	payload := make([]byte, 4374)
+	payload := make([]byte, 4372)
 	copy(payload[0:128], cfg.Name)
 	copy(payload[128:192], cfg.Phys)
 	copy(payload[192:256], cfg.ID)
 	binary.LittleEndian.PutUint16(payload[256:258], uint16(len(cfg.Descriptor)))
-	copy(payload[258:4354], cfg.Descriptor)
-	binary.LittleEndian.PutUint32(payload[4354:4358], uhidBusUSB)
-	binary.LittleEndian.PutUint32(payload[4358:4362], uint32(cfg.VendorID))
-	binary.LittleEndian.PutUint32(payload[4362:4366], uint32(cfg.ProductID))
-	binary.LittleEndian.PutUint32(payload[4366:4370], uint32(cfg.Version))
-	binary.LittleEndian.PutUint32(payload[4370:4374], 0)
+	binary.LittleEndian.PutUint16(payload[258:260], uint16(uhidBusUSB))
+	binary.LittleEndian.PutUint32(payload[260:264], uint32(cfg.VendorID))
+	binary.LittleEndian.PutUint32(payload[264:268], uint32(cfg.ProductID))
+	binary.LittleEndian.PutUint32(payload[268:272], uint32(cfg.Version))
+	binary.LittleEndian.PutUint32(payload[272:276], 0)
+	copy(payload[276:276+len(cfg.Descriptor)], cfg.Descriptor)
 	return c.write(uhidCreate2, payload)
 }
 

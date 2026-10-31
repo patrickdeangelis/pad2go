@@ -90,7 +90,7 @@ func TestDescriptorDeterministic(t *testing.T) {
 	if !ok {
 		t.Fatal("runtime.Caller did not return this test path")
 	}
-	root := filepath.Join(filepath.Dir(currentFile), "hidreport")
+	root := filepath.Dir(currentFile)
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -102,8 +102,14 @@ func TestDescriptorDeterministic(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if bytes.Contains(source, []byte("//go:embed")) {
+		if bytes.Contains(source, []byte("//go:"+"embed")) {
 			return fmt.Errorf("embedded asset directive found in %s", path)
+		}
+		if match := numericByteLiteral.Find(source); match != nil {
+			return fmt.Errorf("numeric byte blob found in %s: %.80s", path, match)
+		}
+		if match := escapedByteLiteral.Find(source); match != nil {
+			return fmt.Errorf("escaped byte blob found in %s: %.80s", path, match)
 		}
 		return nil
 	})
@@ -111,6 +117,14 @@ func TestDescriptorDeterministic(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// These patterns catch a descriptor pasted as a literal instead of composed
+// from HID items. Twelve consecutive values is well above any legitimate
+// usage list in the builder.
+var (
+	numericByteLiteral = regexp.MustCompile(`(?:\b(?:0[xX][0-9A-Fa-f]{1,2}|[0-9]{1,3})\s*,\s*){12,}`)
+	escapedByteLiteral = regexp.MustCompile(`(?:\\x[0-9A-Fa-f]{2}){12,}`)
+)
 
 func TestDescriptorFieldSummary(t *testing.T) {
 	_, currentFile, _, ok := runtime.Caller(0)
@@ -261,7 +275,7 @@ func (p *descriptorParser) parseGlobal(tag byte, value uint32, size int) {
 		} else {
 			p.physicalMax = int32(value)
 		}
-	case 5:
+	case 6:
 		p.unit = value
 	case 7:
 		p.reportSize = int(value)

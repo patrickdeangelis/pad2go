@@ -30,9 +30,11 @@ func TestFactSheet(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"d6cebbef5c7909168d1f881185be8f607d6aefd4",
-		"**Total size** | | **56 bytes** | **44 bytes**",
-		"ReportDescriptorLength | u16 | 10 | 10",
-		"ReadReportPeriodUs | u32 | 52 | 40",
+		"Size is 32 bytes",
+		"WINUHID_EVENT` is packed",
+		"UHID_CREATE2` payload",
+		"rd_size u16 @256",
+		"event size is **4376 bytes**",
 		"descriptor field summary",
 		"| output | 0x02 | 0xFF00 | 0x23 |",
 		"| feature | 0x05 | 0xFF00 | 0x33 |",
@@ -42,8 +44,11 @@ func TestFactSheet(t *testing.T) {
 			t.Errorf("fact sheet does not contain %q", expected)
 		}
 	}
-	if bytes.Contains(facts, []byte("40 bytes on amd64 and 52 bytes on arm64")) {
-		t.Fatal("fact sheet still contains the inconsistent configuration sizes")
+	if bytes.Contains(facts, []byte("4384")) {
+		t.Fatal("fact sheet still contains the old UHID event size")
+	}
+	if bytes.Contains(facts, []byte("30 bytes")) {
+		t.Fatal("fact sheet still contains the old DEVICE_INFO size")
 	}
 }
 
@@ -366,15 +371,20 @@ func TestFeatureDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(features[0x05]) != 41 || features[0x05][0] != 0x05 ||
-		binary.LittleEndian.Uint16(features[0x05][19:21])+
-			binary.LittleEndian.Uint16(features[0x05][21:23]) == 0 {
-		t.Fatalf("invalid gyro calibration defaults: %x", features[0x05])
+	calibration := features[0x05]
+	if len(calibration) != 41 || calibration[0] != 0x05 {
+		t.Fatalf("invalid calibration feature: %x", calibration)
 	}
-	if binary.LittleEndian.Uint16(features[0x05][7:9]) == 0 ||
-		binary.LittleEndian.Uint16(features[0x05][9:11]) == 0 ||
-		binary.LittleEndian.Uint16(features[0x05][23:25]) == 0 {
-		t.Fatal("calibration denominators must be non-zero")
+	want := map[int]int16{
+		1: 0, 3: 0, 5: 0,
+		7: 8192, 9: -8192, 11: 8192, 13: -8192, 15: 8192, 17: -8192,
+		19: 16384, 21: 16384,
+		23: 8192, 25: -8192, 27: 8192, 29: -8192, 31: 8192, 33: -8192,
+	}
+	for offset, value := range want {
+		if got := int16(binary.LittleEndian.Uint16(calibration[offset : offset+2])); got != value {
+			t.Fatalf("calibration offset %d = %d, want %d", offset, got, value)
+		}
 	}
 	if len(features[0x09]) != 20 || features[0x09][0] != 0x09 ||
 		!bytes.Equal(features[0x09][1:7], mac) || !validLocalUnicastMAC(mac) {
@@ -382,9 +392,9 @@ func TestFeatureDefaults(t *testing.T) {
 	}
 	firmware := features[0x20]
 	if len(firmware) != 64 || firmware[0] != 0x20 ||
-		binary.LittleEndian.Uint32(firmware[24:28]) == 0 ||
-		binary.LittleEndian.Uint32(firmware[28:32]) < 0x15 ||
-		binary.LittleEndian.Uint16(firmware[44:46]) < 0x0221 {
+		binary.LittleEndian.Uint32(firmware[24:28]) != 3 ||
+		binary.LittleEndian.Uint32(firmware[28:32]) != 0x00000015 ||
+		binary.LittleEndian.Uint16(firmware[44:46]) != 0x0221 {
 		t.Fatalf("invalid firmware feature defaults: %x", firmware)
 	}
 }
@@ -643,6 +653,7 @@ type fakeHost struct {
 	waitForProbes       bool
 	blockStart          bool
 	blockSubmit         bool
+	submitErr           error
 	mutateCompletedData bool
 	submitStarted       chan struct{}
 	started             bool
@@ -697,7 +708,11 @@ func (h *fakeHost) SubmitReport(ctx context.Context, report []byte) error {
 	h.mu.Lock()
 	h.submitted = append(h.submitted, append([]byte(nil), report...))
 	block := h.blockSubmit
+	submitErr := h.submitErr
 	h.mu.Unlock()
+	if submitErr != nil {
+		return submitErr
+	}
 	if block {
 		select {
 		case h.submitStarted <- struct{}{}:

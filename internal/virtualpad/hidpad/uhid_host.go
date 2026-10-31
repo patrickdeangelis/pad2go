@@ -199,11 +199,15 @@ func (h *uhidHost) readLoop() {
 				return
 			}
 		case uhidSetReport:
-			request, reportID, _, data, err := decodeUHIDSetReport(payload)
+			request, reportID, reportType, data, err := decodeUHIDSetReport(payload)
 			if err != nil {
 				continue
 			}
-			if !h.emit(HostEvent{Kind: HostSetFeature, Request: uint64(request), ReportID: reportID, Data: data}) {
+			kind := HostSetFeature
+			if reportType == uhidReportOutput {
+				kind = HostOutputReport
+			}
+			if !h.emit(HostEvent{Kind: kind, Request: uint64(request), ReportID: reportID, Data: data}) {
 				return
 			}
 		}

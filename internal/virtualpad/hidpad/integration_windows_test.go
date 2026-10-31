@@ -3,6 +3,7 @@
 package hidpad
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -14,7 +15,10 @@ import (
 func TestWindowsIntegration(t *testing.T) {
 	device, err := Open(DualSenseWired, Options{})
 	if err != nil {
-		t.Skipf("WinUHid not available: %v", err)
+		if errors.Is(err, ErrDriverMissing) || errors.Is(err, ErrPermission) {
+			t.Skipf("WinUHid not available: %v", err)
+		}
+		t.Fatalf("open: %v", err)
 	}
 	defer device.Close()
 
