@@ -31,6 +31,7 @@ const (
 	BtnGL       uint32 = 0x02000000
 	BtnPSLTouch uint32 = 0x04000000
 	BtnPSRTouch uint32 = 0x08000000
+	BtnMute     uint32 = 0x10000000
 	BtnPSCClick uint32 = 0x20000000
 	BtnGCLClick uint32 = 0x40000000
 	BtnGCRClick uint32 = 0x80000000
@@ -47,6 +48,7 @@ var ButtonsByName = map[string]uint32{
 	"SR_L": BtnSRL, "SL_L": BtnSLL, "L": BtnL, "ZL": BtnZL,
 	"GR": BtnGR, "GL": BtnGL,
 	"PS_L_Touch": BtnPSLTouch, "PS_R_Touch": BtnPSRTouch, "PS_C_Click": BtnPSCClick,
+	"MUTE": BtnMute, "Mute": BtnMute,
 	"GC_L_CLICK": BtnGCLClick, "GC_R_CLICK": BtnGCRClick,
 }
 
@@ -59,6 +61,7 @@ var canonicalNames = map[uint32]string{
 	BtnSRL: "SR_L", BtnSLL: "SL_L", BtnL: "L", BtnZL: "ZL",
 	BtnGR: "GR", BtnGL: "GL",
 	BtnPSLTouch: "PS_L_Touch", BtnPSRTouch: "PS_R_Touch", BtnPSCClick: "PS_C_Click",
+	BtnMute:     "MUTE",
 	BtnGCLClick: "GC_L_CLICK", BtnGCRClick: "GC_R_CLICK",
 }
 

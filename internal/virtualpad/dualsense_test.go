@@ -20,7 +20,7 @@ func TestEncodeDualSenseRoundTrip(t *testing.T) {
 	frame := mapping.Frame{
 		Player: protocol.Input{
 			Buttons: protocol.BtnB | protocol.BtnA | protocol.BtnL | protocol.BtnRStick |
-				protocol.BtnPlus | protocol.BtnHome | protocol.BtnPSCClick | protocol.BtnUp | protocol.BtnRight,
+				protocol.BtnPlus | protocol.BtnHome | protocol.BtnPSCClick | protocol.BtnMute | protocol.BtnUp | protocol.BtnRight,
 			Left:           protocol.Stick{X: 0.5, Y: 0.5},
 			Right:          protocol.Stick{X: -0.5, Y: -0.25},
 			LeftTrigger:    200,
@@ -43,7 +43,7 @@ func TestEncodeDualSenseRoundTrip(t *testing.T) {
 	}
 	for _, button := range []uint32{
 		protocol.BtnB, protocol.BtnA, protocol.BtnL, protocol.BtnRStick,
-		protocol.BtnPlus, protocol.BtnHome, protocol.BtnPSCClick,
+		protocol.BtnPlus, protocol.BtnHome, protocol.BtnPSCClick, protocol.BtnMute,
 		protocol.BtnUp, protocol.BtnRight,
 	} {
 		if in.Buttons&button == 0 {

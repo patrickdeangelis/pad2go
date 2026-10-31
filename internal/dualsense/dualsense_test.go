@@ -182,6 +182,17 @@ func inputReport(edit func(r []byte)) []byte {
 	return r
 }
 
+func TestParseMute(t *testing.T) {
+	report := inputReport(func(r []byte) { r[10] = 0x04 })
+	in, ok := Parse(report)
+	if !ok || in.Buttons&protocol.BtnMute == 0 {
+		t.Fatalf("mute not parsed: %+v ok=%v", in.Buttons, ok)
+	}
+	if in.Buttons&(protocol.BtnHome|protocol.BtnPSCClick) != 0 {
+		t.Fatalf("mute report also set system buttons: %#x", in.Buttons)
+	}
+}
+
 func TestParseRejectsBadReports(t *testing.T) {
 	good := inputReport(nil)
 	tooShort := append([]byte(nil), good[:63]...)

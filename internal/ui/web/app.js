@@ -258,11 +258,11 @@
   // --- Input test -------------------------------------------------------------
   const buttonIds = { up: 0x0001, down: 0x0002, left: 0x0004, right: 0x0008, start: 0x0010, back: 0x0020, l: 0x0100, r: 0x0200, guide: 0x0400, a: 0x1000, b: 0x2000, x: 0x4000, y: 0x8000 };
   const physicalLabels = { MINUS: '−', PLUS: '+', HOME: 'Home', CAPT: 'Captura', C: 'C (Chat)', L_STK: 'L3', R_STK: 'R3', UP: '↑', DOWN: '↓', LEFT: '←', RIGHT: '→', SL_L: 'SL', SR_L: 'SR', SL_R: 'SL', SR_R: 'SR' };
-  const physicalOrder = ['A', 'B', 'X', 'Y', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'L', 'R', 'ZL', 'ZR', 'L_STK', 'R_STK', 'MINUS', 'PLUS', 'HOME', 'CAPT', 'C', 'SL_L', 'SR_L', 'SL_R', 'SR_R', 'GL', 'GR'];
+  const physicalOrder = ['A', 'B', 'X', 'Y', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'L', 'R', 'ZL', 'ZR', 'L_STK', 'R_STK', 'MINUS', 'PLUS', 'HOME', 'CAPT', 'MUTE', 'C', 'SL_L', 'SR_L', 'SL_R', 'SR_R', 'GL', 'GR'];
   const number = (value, digits = 2) => value.toFixed(digits).replace('.', ',');
   const physicalKey = (name, kind) => {
     const common = { UP: 'UP', DOWN: 'DOWN', LEFT: 'LEFT', RIGHT: 'RIGHT', L_STK: 'LS', R_STK: 'RS', MINUS: 'SELECT', PLUS: 'START', HOME: 'HOME', CAPT: 'MUTE', C: 'TOUCH', L: 'L', R: 'R', ZL: 'L2', ZR: 'R2', GC_L_CLICK: 'L2', GC_R_CLICK: 'Z', GL: 'L', GR: 'R', SL_L: 'L', SR_L: 'L', SL_R: 'R', SR_R: 'R' };
-    if (kind === 'ds') return ({ A: 'EAST', B: 'SOUTH', X: 'NORTH', Y: 'WEST', ...common, L: 'L1', R: 'R1', ZL: 'L2', ZR: 'R2', MINUS: 'SELECT', PLUS: 'START', HOME: 'HOME', CAPT: 'MUTE', PS_L_Touch: 'TOUCH', PS_R_Touch: 'TOUCH', PS_C_Click: 'TOUCH' })[name];
+    if (kind === 'ds') return ({ A: 'EAST', B: 'SOUTH', X: 'NORTH', Y: 'WEST', ...common, L: 'L1', R: 'R1', ZL: 'L2', ZR: 'R2', MINUS: 'SELECT', PLUS: 'START', HOME: 'HOME', CAPT: 'MUTE', MUTE: 'MUTE', PS_L_Touch: 'TOUCH', PS_R_Touch: 'TOUCH', PS_C_Click: 'TOUCH' })[name];
     if (kind === 'gc') return ({ A: 'SOUTH', B: 'WEST', X: 'EAST', Y: 'NORTH', ...common, MINUS: 'SELECT', PLUS: 'START', HOME: 'HOME' })[name];
     if (kind === 'left' || (kind === 'joy-pair' && ['CAPT', 'SL_L', 'SR_L'].includes(name))) return ({ ...common, ZL: 'ZL', CAPT: 'CAPTURE', SL_L: 'SL', SR_L: 'SR' })[name];
     if (kind === 'right') return ({ ...common, A: 'EAST', B: 'SOUTH', X: 'NORTH', Y: 'WEST', ZR: 'ZR', SL_R: 'SL', SR_R: 'SR' })[name];
@@ -290,6 +290,7 @@
       if (key === 'L2' || key === 'ZL') pressed = sample.lt > 0;
       if (key === 'R2' || key === 'ZR') pressed = sample.rt > 0;
       if (key === 'CAPTURE') pressed = (sample.pressed || []).includes('CAPT');
+      if (key === 'MUTE') pressed = (sample.pressed || []).includes('MUTE');
       node.classList.toggle('is-pressed', pressed);
     });
   }
@@ -301,7 +302,7 @@
     if (leftStick) leftStick.parentElement.classList.toggle('active', Boolean(sample.buttons & 0x0040));
     if (rightStick) rightStick.parentElement.classList.toggle('active', Boolean(sample.buttons & 0x0080));
     const pressed = (sample.pressed || []).slice().sort((a, b) => (physicalOrder.indexOf(a) + 99) % 99 - (physicalOrder.indexOf(b) + 99) % 99);
-    const physicalNames = ui.testKind === 'ds' ? { Y: 'Square', X: 'Triangle', B: 'Cross', A: 'Circle', L: 'L1', R: 'R1', ZL: 'L2', ZR: 'R2', MINUS: 'Create', PLUS: 'Options', HOME: 'PS', PS_C_Click: 'Clique do touchpad' } : {};
+    const physicalNames = ui.testKind === 'ds' ? { Y: 'Square', X: 'Triangle', B: 'Cross', A: 'Circle', L: 'L1', R: 'R1', ZL: 'L2', ZR: 'R2', MINUS: 'Create', PLUS: 'Options', HOME: 'PS', MUTE: 'Mute', PS_C_Click: 'Clique do touchpad' } : {};
     el('touch-test').hidden = ui.testKind !== 'ds';
     const touches = (sample.touch || []).filter(point => point.active);
     el('touch-values').value = touches.length ? touches.map(point => `#${point.id}: ${point.x}, ${point.y}`).join(' · ') : 'Sem contato';

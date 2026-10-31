@@ -176,6 +176,9 @@ func encodeDualSense(f mapping.Frame) []byte {
 	if in.Buttons&protocol.BtnPSCClick != 0 {
 		system |= 0x02
 	}
+	if in.Buttons&protocol.BtnMute != 0 {
+		system |= 0x04
+	}
 	report[10] = system
 
 	report[1] = stickByte(in.Left.X)
