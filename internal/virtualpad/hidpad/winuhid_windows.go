@@ -127,7 +127,7 @@ func (h *winUHIDHost) Complete(_ context.Context, event HostEvent, data []byte, 
 	}
 	switch event.Kind {
 	case HostGetInput, HostGetFeature:
-		return h.ioctlHandle(handle, winUHIDCompleteReadEvent, encodeWinUHIDCompleteRead(uint32(event.Request), status, fitReadData(data, event.RequestedLength)), nil)
+		return h.ioctlHandle(handle, winUHIDCompleteReadEvent, winUHIDCompleteReadPayload(event, data, status), nil)
 	case HostSetFeature, HostOutputReport:
 		return h.ioctlHandle(handle, winUHIDCompleteWriteEvent, encodeWinUHIDCompleteWrite(uint32(event.Request), status), nil)
 	default:

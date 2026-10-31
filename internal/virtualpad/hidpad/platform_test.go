@@ -541,6 +541,28 @@ func TestFitReadData(t *testing.T) {
 	}
 }
 
+func TestWinUHIDCompleteReadPayload(t *testing.T) {
+	payload := winUHIDCompleteReadPayload(HostEvent{Request: 7, RequestedLength: 5}, []byte{1, 2, 3}, 0)
+	if len(payload) != 17 || binary.LittleEndian.Uint32(payload[0:4]) != 7 ||
+		binary.LittleEndian.Uint32(payload[4:8]) != 0 || binary.LittleEndian.Uint32(payload[8:12]) != 5 ||
+		!bytes.Equal(payload[12:], []byte{1, 2, 3, 0, 0}) {
+		t.Fatalf("padded complete-read payload %x", payload)
+	}
+	payload = winUHIDCompleteReadPayload(HostEvent{Request: 8, RequestedLength: 2}, []byte{1, 2, 3}, 0)
+	if len(payload) != 14 || binary.LittleEndian.Uint32(payload[8:12]) != 2 ||
+		!bytes.Equal(payload[12:], []byte{1, 2}) {
+		t.Fatalf("truncated complete-read payload %x", payload)
+	}
+	payload = winUHIDCompleteReadPayload(HostEvent{Request: 9}, nil, 0)
+	if len(payload) != 13 || binary.LittleEndian.Uint32(payload[8:12]) != 0 {
+		t.Fatalf("zero-length complete-read payload %x, want the 13-byte driver minimum", payload)
+	}
+	payload = winUHIDCompleteReadPayload(HostEvent{Request: 10}, nil, 0xC0000001)
+	if binary.LittleEndian.Uint32(payload[4:8]) != 0xC0000001 {
+		t.Fatalf("status %#x, want 0xC0000001", binary.LittleEndian.Uint32(payload[4:8]))
+	}
+}
+
 func TestSubmitErrorIsNotClosed(t *testing.T) {
 	host := newFakeHost()
 	device, err := Open(DualSenseWired, Options{Host: host})

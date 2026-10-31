@@ -94,12 +94,23 @@ func encodeWinUHIDCompleteWrite(request uint32, status uint32) []byte {
 }
 
 func encodeWinUHIDCompleteRead(request uint32, status uint32, data []byte) []byte {
+	length := len(data)
+	if length == 0 {
+		// The driver requires sizeof(WINUHID_READ_EVENT_COMPLETE), which
+		// includes the one-byte ANYSIZE_ARRAY placeholder, even for a
+		// zero-length reply.
+		data = []byte{0}
+	}
 	buf := make([]byte, 12+len(data))
 	binary.LittleEndian.PutUint32(buf[0:4], request)
 	binary.LittleEndian.PutUint32(buf[4:8], status)
-	binary.LittleEndian.PutUint32(buf[8:12], uint32(len(data)))
-	copy(buf[12:], data)
+	binary.LittleEndian.PutUint32(buf[8:12], uint32(length))
+	copy(buf[12:], data[:length])
 	return buf
+}
+
+func winUHIDCompleteReadPayload(event HostEvent, data []byte, status uint32) []byte {
+	return encodeWinUHIDCompleteRead(uint32(event.Request), status, fitReadData(data, event.RequestedLength))
 }
 
 func fitReadData(data []byte, requested uint32) []byte {
