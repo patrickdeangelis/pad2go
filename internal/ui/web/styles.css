@@ -458,7 +458,7 @@ body:has(#pending:not([hidden])) .toasts { bottom: 88px; }
 @media (max-width: 720px) { .test-device-section { margin-inline: 12px; } .test-controller { min-height: 118px; } }
 
 /* The input test pairs the controller the person is holding with its Xbox output. */
-.sheet:open { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, .92fr); grid-template-rows: auto auto 1fr auto; width: min(920px, calc(100vw - 40px)); }
+.sheet:open { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .92fr); grid-template-rows: auto auto 1fr auto; width: min(1040px, calc(100vw - 24px)); max-height: calc(100vh - 20px); overflow: auto; }
 .sheet-header { grid-column: 1 / -1; padding: 20px 24px 12px; }
 .test-device-section { grid-column: 1; grid-row: 2 / 4; align-self: stretch; margin: 0 12px 16px 24px; padding: 16px; border: 1px solid var(--separator); border-radius: 12px; background: color-mix(in srgb, var(--label) 3%, transparent); }
 .test-device-heading span, .output-heading { color: var(--secondary); font-size: 11px; }
@@ -471,7 +471,14 @@ body:has(#pending:not([hidden])) .toasts { bottom: 88px; }
 .device-icon .joycon-svg { width: 20px; height: 44px; }
 .device-icon .joycon-svg + .joycon-svg { margin-left: 3px; }
 .output-heading { grid-column: 2; grid-row: 2; align-self: end; margin: 0 24px 4px 8px; font-weight: 700; }
-.input-layout { grid-column: 2; grid-row: 3; grid-template-columns: minmax(160px, .9fr) minmax(0, 1fr); gap: 12px; padding: 8px 24px 16px 8px; align-items: center; }
+.virtual-hardware { display: grid; place-items: center; min-height: 230px; width: 100%; }
+.virtual-hardware .hardware-set { display: flex; justify-content: center; width: 100%; }
+.virtual-hardware .test-hardware { width: min(300px, 100%) !important; height: auto !important; max-height: none !important; }
+.virtual-empty { display: grid; place-items: center; min-height: 210px; padding: 20px; text-align: center; color: var(--secondary); font-size: 12px; line-height: 1.5; }
+.input-layout { grid-column: 2; grid-row: 3; grid-template-columns: 1fr; gap: 12px; padding: 8px 24px 16px 8px; align-items: start; }
+.input-pad { max-width: 320px; margin-inline: auto; width: 100%; }
+.readings .row-label { min-width: 0; }
+.readings .value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .input-pad-body { padding: 14px 10px; }
 .sheet-footer { grid-column: 1 / -1; border-top: 1px solid var(--separator); }
 .test-shoulders { max-width: none; margin-top: 12px; }

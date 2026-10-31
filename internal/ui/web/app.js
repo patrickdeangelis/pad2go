@@ -6,6 +6,7 @@
   const root = document.getElementById('pad2go');
   const el = id => document.getElementById(id);
   const all = query => [...document.querySelectorAll(query)];
+  const xboxPadHTML = document.getElementById('test-output-controller')?.innerHTML || '';
   const prefsKey = 'pad2go-ui-v2';
   const ui = { view: 'controllers', detail: null, testing: null, discoveryOpen: false, discoveryKind: null, notifications: true };
   let snap = null;
@@ -279,10 +280,26 @@
     const kinds = members.length === 2 ? ['left', 'right'] : [members[0]?.kind || 'pro'];
     return `<div class="hardware-set ${members.length === 2 ? 'pair' : ''} ${horizontal ? 'joy-horizontal' : ''}">${(await Promise.all(kinds.map(controllerSVG))).join('')}</div>`;
   }
+  function highlightVirtual(sample) {
+    const map = virtualKeyMap[virtualKind];
+    const root = el('test-output-controller');
+    if (!map || !root) return;
+    root.querySelectorAll('.control[data-key]').forEach(node => {
+      const key = node.dataset.key;
+      let pressed = Boolean(sample.buttons & (map[key] || 0));
+      if (key === 'L2' || key === 'ZL') pressed = sample.lt > 0;
+      if (key === 'R2' || key === 'ZR') pressed = sample.rt > 0;
+      if (key === 'CAPTURE') pressed = (sample.pressed || []).includes('CAPT');
+      node.classList.toggle('is-pressed', pressed);
+    });
+  }
+
   function showInput(sample) {
-    Object.entries(buttonIds).forEach(([id, bit]) => el(`pad-${id}`).classList.toggle('active', Boolean(sample.buttons & bit)));
-    el('stick-left').parentElement.classList.toggle('active', Boolean(sample.buttons & 0x0040));
-    el('stick-right').parentElement.classList.toggle('active', Boolean(sample.buttons & 0x0080));
+    Object.entries(buttonIds).forEach(([id, bit]) => { const node = el(`pad-${id}`); if (node) node.classList.toggle('active', Boolean(sample.buttons & bit)); });
+    const leftStick = el('stick-left');
+    const rightStick = el('stick-right');
+    if (leftStick) leftStick.parentElement.classList.toggle('active', Boolean(sample.buttons & 0x0040));
+    if (rightStick) rightStick.parentElement.classList.toggle('active', Boolean(sample.buttons & 0x0080));
     const pressed = (sample.pressed || []).slice().sort((a, b) => (physicalOrder.indexOf(a) + 99) % 99 - (physicalOrder.indexOf(b) + 99) % 99);
     const physicalNames = ui.testKind === 'ds' ? { Y: 'Square', X: 'Triangle', B: 'Cross', A: 'Circle', L: 'L1', R: 'R1', ZL: 'L2', ZR: 'R2', MINUS: 'Create', PLUS: 'Options', HOME: 'PS', PS_C_Click: 'Clique do touchpad' } : {};
     el('touch-test').hidden = ui.testKind !== 'ds';
@@ -301,8 +318,9 @@
     all('#test-shoulders [data-input]').forEach(node => node.classList.toggle('is-active', pressed.some(name => physicalKey(name, ui.testKind) === physicalKey(node.dataset.input, ui.testKind))));
     all('#test-shoulders [data-trigger]').forEach(node => node.classList.toggle('is-active', (node.dataset.trigger === 'lt' ? physicalLT : physicalRT) > 0));
     el('pressed-values').value = pressed.length ? pressed.map(name => physicalNames[name] || physicalLabels[name] || name.replace(/_/g, ' ')).join(' · ') : '—';
-    el('stick-left').style.transform = `translate(${sample.lx * 14}px,${-sample.ly * 14}px)`;
-    el('stick-right').style.transform = `translate(${sample.rx * 14}px,${-sample.ry * 14}px)`;
+    if (leftStick) leftStick.style.transform = `translate(${sample.lx * 14}px,${-sample.ly * 14}px)`;
+    if (rightStick) rightStick.style.transform = `translate(${sample.rx * 14}px,${-sample.ry * 14}px)`;
+    highlightVirtual(sample);
     el('left-values').value = `X ${number(sample.lx)} · Y ${number(sample.ly)}`;
     el('right-values').value = `X ${number(sample.rx)} · Y ${number(sample.ry)}`;
     [['l', sample.lt], ['r', sample.rt]].forEach(([side, raw]) => {
@@ -338,34 +356,69 @@
     el('test-controller').innerHTML = await controllerTestArt(slot?.members || [], horizontal);
     el('test-controller').className = `test-controller ${kinds.length === 2 ? 'joy-pair' : kinds[0] || ''}${horizontal ? ' joy-horizontal' : ''}`;
     el('test-mapping').textContent = mappingText(slot);
-    renderVirtualOutput(slot);
+    await renderVirtualOutput(slot);
     inputStream = new EventSource(`/api/players/${player}/input`);
     inputStream.addEventListener('input', event => showInput(JSON.parse(event.data)));
     inputStream.onerror = () => { if (ui.testing === player) el('input-state').textContent = 'Sem entradas: o controle desconectou?'; };
     el('test-dialog').showModal();
   }
-  function renderVirtualOutput(slot) {
-    const labels = {
-      xbox: { heading: 'Xbox 360', l: 'LB', r: 'RB', back: 'Back', guide: '\u2302', start: 'Start', y: 'Y', x: 'X', b: 'B', a: 'A' },
-      dualsense: { heading: 'DualSense', l: 'L1', r: 'R1', back: 'Create', guide: 'PS', start: 'Options', y: 'Triangle', x: 'Square', b: 'Circle', a: 'Cross' },
-      switch: { heading: 'Switch Pro', l: 'L', r: 'R', back: '-', guide: 'Home', start: '+', y: 'X', x: 'Y', b: 'A', a: 'B' },
-      none: { heading: 'Sem saída virtual', l: '', r: '', back: '', guide: '', start: '', y: '', x: '', b: '', a: '' },
-    };
+  let virtualKind = 'xbox';
+  const virtualKeyMap = {
+    dualsense: {
+      SOUTH: 0x1000, EAST: 0x2000, WEST: 0x4000, NORTH: 0x8000,
+      L1: 0x0100, R1: 0x0200, SELECT: 0x0020, START: 0x0010, HOME: 0x0400,
+      UP: 0x0001, DOWN: 0x0002, LEFT: 0x0004, RIGHT: 0x0008,
+      LS: 0x0040, RS: 0x0080,
+    },
+    switch: {
+      SOUTH: 0x1000, EAST: 0x2000, WEST: 0x4000, NORTH: 0x8000,
+      L: 0x0100, R: 0x0200, SELECT: 0x0020, START: 0x0010, HOME: 0x0400,
+      UP: 0x0001, DOWN: 0x0002, LEFT: 0x0004, RIGHT: 0x0008,
+      LS: 0x0040, RS: 0x0080,
+    },
+  };
+
+  async function renderVirtualOutput(slot) {
     const effective = slot?.outputKind || 'none';
     const requested = slot?.outputOverrideKind || effective;
-    const set = labels[requested] || labels.none;
+    virtualKind = requested === 'auto' ? effective : requested;
+    const root = el('test-output-controller');
+    const labels = {
+      xbox: { heading: 'Xbox 360', l: 'LB', r: 'RB', back: 'Back', guide: '\u2302', start: 'Start', y: 'Y', x: 'X', b: 'B', a: 'A' },
+      dualsense: { heading: 'DualSense' },
+      switch: { heading: 'Switch Pro' },
+      none: { heading: 'Sem saída virtual' },
+    };
+    const set = labels[virtualKind] || labels.none;
     const unavailable = requested !== effective && effective === 'none' ? ' (indisponível)' : '';
     el('test-output-heading').textContent = `Saída virtual · ${set.heading}${unavailable}`;
-    el('test-output-heading').dataset.kind = requested;
-    el('pad-l').textContent = set.l;
-    el('pad-r').textContent = set.r;
-    el('pad-back').textContent = set.back;
-    el('pad-guide').textContent = set.guide;
-    el('pad-start').textContent = set.start;
-    el('pad-y').textContent = set.y;
-    el('pad-x').textContent = set.x;
-    el('pad-b').textContent = set.b;
-    el('pad-a').textContent = set.a;
+    el('test-output-heading').dataset.kind = virtualKind;
+
+    if (virtualKind === 'none') {
+      root.className = 'input-pad';
+      root.innerHTML = '<div class="virtual-empty">Sem saída virtual: os jogos não recebem um controle virtual neste player.</div>';
+      return;
+    }
+    if (virtualKind === 'xbox') {
+      root.className = 'input-pad';
+      root.innerHTML = xboxPadHTML;
+      el('pad-l').textContent = set.l;
+      el('pad-r').textContent = set.r;
+      el('pad-back').textContent = set.back;
+      el('pad-guide').textContent = set.guide;
+      el('pad-start').textContent = set.start;
+      el('pad-y').textContent = set.y;
+      el('pad-x').textContent = set.x;
+      el('pad-b').textContent = set.b;
+      el('pad-a').textContent = set.a;
+      return;
+    }
+
+    const file = virtualKind === 'switch' ? 'pro' : 'ds';
+    let svg = await controllerSVG(file);
+    svg = svg.replace(/id="([^"]+)"/g, 'id="vo-$1"').replace(/url\(#([^)]+)\)/g, 'url(#vo-$1)');
+    root.className = 'input-pad virtual-hardware';
+    root.innerHTML = `<div class="hardware-set virtual-set">${svg}</div>`;
   }
 
   function mappingText(slot) {
