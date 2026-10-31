@@ -17,16 +17,24 @@ import (
 )
 
 type captureTransport struct {
+	mu      sync.Mutex
 	written []byte
 	reader  *bytes.Buffer
 }
 
 func (c *captureTransport) Write(p []byte) (int, error) {
+	c.mu.Lock()
 	c.written = append(c.written, p...)
+	c.mu.Unlock()
 	return len(p), nil
 }
 func (c *captureTransport) Read(p []byte) (int, error) { return c.reader.Read(p) }
 func (c *captureTransport) Close() error               { return nil }
+func (c *captureTransport) snapshot() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]byte(nil), c.written...)
+}
 
 func lastUHIDEvent(t *testing.T, written []byte) (uint32, []byte) {
 	t.Helper()
@@ -38,6 +46,9 @@ func lastUHIDEvent(t *testing.T, written []byte) (uint32, []byte) {
 }
 
 func TestUHIDCodec(t *testing.T) {
+	if uhidEventSize != 4376 {
+		t.Fatalf("uhidEventSize = %d, want the kernel's 4376", uhidEventSize)
+	}
 	transport := &captureTransport{reader: bytes.NewBuffer(nil)}
 	codec := &uhidCodec{rw: transport}
 	descriptor := make([]byte, 273)
@@ -51,9 +62,15 @@ func TestUHIDCodec(t *testing.T) {
 	if err := codec.createDevice(cfg); err != nil {
 		t.Fatal(err)
 	}
+	if len(transport.written) != 4376 {
+		t.Fatalf("CREATE2 wrote %d bytes, want one 4376-byte event", len(transport.written))
+	}
 	typ, payload := lastUHIDEvent(t, transport.written)
 	if typ != uhidCreate2 {
 		t.Fatalf("create type %d, want %d", typ, uhidCreate2)
+	}
+	if len(payload) != 4372 {
+		t.Fatalf("CREATE2 payload %d, want 4372", len(payload))
 	}
 	if got := string(bytes.TrimRight(payload[0:128], "\x00")); got != cfg.Name {
 		t.Errorf("name %q, want %q", got, cfg.Name)
@@ -78,6 +95,9 @@ func TestUHIDCodec(t *testing.T) {
 	}
 	if got := binary.LittleEndian.Uint32(payload[268:272]); got != 0x0100 {
 		t.Errorf("version %#x, want 0x0100", got)
+	}
+	if got := binary.LittleEndian.Uint32(payload[272:276]); got != 0 {
+		t.Errorf("country %d, want 0", got)
 	}
 	if !bytes.Equal(payload[276:276+273], descriptor) {
 		t.Error("descriptor bytes were not copied at offset 276")
@@ -130,7 +150,7 @@ func TestUHIDCodec(t *testing.T) {
 	readTransport := &captureTransport{reader: bytes.NewBuffer(testUHIDEvent(uhidOutput, nil))}
 	readCodec := &uhidCodec{rw: readTransport}
 	typ, payload, readErr := readCodec.read()
-	if readErr != nil || typ != uhidOutput || len(payload) != uhidEventSize-4 {
+	if readErr != nil || typ != uhidOutput || len(payload) != 4372 {
 		t.Fatalf("read event: type %d len %d err %v", typ, len(payload), readErr)
 	}
 
@@ -163,8 +183,8 @@ func TestUHIDCodec(t *testing.T) {
 func TestUHIDSingleEventRead(t *testing.T) {
 	transport := &strictEventTransport{
 		events: [][]byte{
-			testUHIDEvent(uhidOutput, append([]byte{0x01, 0x02}, make([]byte, 4097)...)),
-			testUHIDEvent(uhidGetReport, append([]byte{7, 0, 0, 0}, []byte{0x05, uhidReportFeature}...)),
+			literalUHIDEvent(uhidOutput, append([]byte{0x01, 0x02}, make([]byte, 4097)...)),
+			literalUHIDEvent(uhidGetReport, append([]byte{7, 0, 0, 0}, []byte{0x05, uhidReportFeature}...)),
 		},
 	}
 	codec := &uhidCodec{rw: transport}
@@ -176,13 +196,24 @@ func TestUHIDSingleEventRead(t *testing.T) {
 		if typ != want {
 			t.Fatalf("read %d type %d, want %d", i, typ, want)
 		}
-		if len(payload) != uhidEventSize-4 {
-			t.Fatalf("read %d payload %d, want %d", i, len(payload), uhidEventSize-4)
+		if len(payload) != 4372 {
+			t.Fatalf("read %d payload %d, want 4372", i, len(payload))
 		}
 	}
 	if transport.reads != 2 {
 		t.Fatalf("transport reads %d, want one per event", transport.reads)
 	}
+}
+
+const literalUHIDEventSize = 4376
+
+// literalUHIDEvent pins the kernel size independently of uhidEventSize so a
+// constant change cannot make the test agree with the code by construction.
+func literalUHIDEvent(typ uint32, payload []byte) []byte {
+	buf := make([]byte, literalUHIDEventSize)
+	binary.LittleEndian.PutUint32(buf, typ)
+	copy(buf[4:], payload)
+	return buf
 }
 
 type strictEventTransport struct {
@@ -191,8 +222,8 @@ type strictEventTransport struct {
 }
 
 func (s *strictEventTransport) Read(p []byte) (int, error) {
-	if len(p) != uhidEventSize {
-		return 0, fmt.Errorf("read buffer %d, want exactly one %d-byte event", len(p), uhidEventSize)
+	if len(p) != literalUHIDEventSize {
+		return 0, fmt.Errorf("read buffer %d, want exactly one %d-byte event", len(p), literalUHIDEventSize)
 	}
 	if s.reads >= len(s.events) {
 		return 0, io.EOF
@@ -372,14 +403,24 @@ func TestWinUHIDABI(t *testing.T) {
 }
 
 func TestWindowsErrorClassification(t *testing.T) {
+	if err := classifyWinUHIDError(nil); err != nil {
+		t.Errorf("nil -> %v, want nil", err)
+	}
 	if err := classifyWinUHIDError(syscall.Errno(2)); !errors.Is(err, ErrDriverMissing) {
 		t.Errorf("ERROR_FILE_NOT_FOUND -> %v, want ErrDriverMissing", err)
+	} else if !strings.Contains(err.Error(), "WinUHid") || !strings.Contains(err.Error(), `\\.\WinUHid`) {
+		t.Errorf("missing-driver error does not name the device: %v", err)
 	}
 	if err := classifyWinUHIDError(syscall.Errno(3)); !errors.Is(err, ErrDriverMissing) {
 		t.Errorf("ERROR_PATH_NOT_FOUND -> %v, want ErrDriverMissing", err)
 	}
 	if err := classifyWinUHIDError(syscall.Errno(5)); !errors.Is(err, ErrPermission) {
 		t.Errorf("ERROR_ACCESS_DENIED -> %v, want ErrPermission", err)
+	}
+	if err := classifyWinUHIDError(syscall.Errno(87)); err == nil ||
+		errors.Is(err, ErrDriverMissing) || errors.Is(err, ErrPermission) ||
+		!strings.Contains(err.Error(), "WinUHid") {
+		t.Errorf("unexpected errno -> %v, want a wrapped non-sentinel error", err)
 	}
 }
 
@@ -442,6 +483,18 @@ func TestCloseDrainsLateHostEvent(t *testing.T) {
 	}
 }
 
+func TestFitReadData(t *testing.T) {
+	if got := fitReadData([]byte{1, 2, 3}, 5); !bytes.Equal(got, []byte{1, 2, 3, 0, 0}) {
+		t.Fatalf("pad = %x, want 0102030000", got)
+	}
+	if got := fitReadData([]byte{1, 2, 3}, 2); !bytes.Equal(got, []byte{1, 2}) {
+		t.Fatalf("truncate = %x, want 0102", got)
+	}
+	if got := fitReadData([]byte{1, 2, 3}, 0); !bytes.Equal(got, []byte{1, 2, 3}) {
+		t.Fatalf("unbounded = %x, want 010203", got)
+	}
+}
+
 func TestSubmitErrorIsNotClosed(t *testing.T) {
 	host := newFakeHost()
 	device, err := Open(DualSenseWired, Options{Host: host})
@@ -463,6 +516,35 @@ func TestSubmitErrorIsNotClosed(t *testing.T) {
 	case <-device.Done():
 		t.Fatal("failed submit closed the device")
 	default:
+	}
+
+	// A failed submit must not become the GET_INPUT cache.
+	host.emit(HostEvent{Kind: HostGetInput, Request: 1, ReportID: 0x01})
+	completion := host.receiveCompletion(t)
+	if !bytes.Equal(completion.response, neutralReport()) {
+		t.Fatalf("GET_INPUT after failed submit = %x, want the neutral report", completion.response)
+	}
+
+	host.mu.Lock()
+	host.submitErr = nil
+	host.mu.Unlock()
+	marker := neutralReport()
+	marker[1] = 0x7E
+	if err := device.SubmitReport(marker); err != nil {
+		t.Fatal(err)
+	}
+	host.mu.Lock()
+	host.submitErr = errors.New("boom")
+	host.mu.Unlock()
+	failed := neutralReport()
+	failed[1] = 0x7F
+	if err := device.SubmitReport(failed); err == nil {
+		t.Fatal("expected the second submit to fail")
+	}
+	host.emit(HostEvent{Kind: HostGetInput, Request: 2, ReportID: 0x01})
+	completion = host.receiveCompletion(t)
+	if !bytes.Equal(completion.response, marker) {
+		t.Fatalf("GET_INPUT after failed submit = %x, want the last successful report %x", completion.response, marker)
 	}
 }
 
@@ -562,7 +644,7 @@ func (h *emittingHost) Close() error {
 func TestUHIDHostRequestKinds(t *testing.T) {
 	transport := &captureTransport{reader: bytes.NewBuffer(nil)}
 	write := func(typ uint32, payload []byte) {
-		transport.reader.Write(testUHIDEvent(typ, payload))
+		transport.reader.Write(literalUHIDEvent(typ, payload))
 	}
 	write(uhidStart, nil)
 
@@ -608,6 +690,120 @@ func TestUHIDHostRequestKinds(t *testing.T) {
 	if !ok || output.Request != 22 || output.ReportID != 0x02 || !bytes.Equal(output.Data, []byte{0x02}) {
 		t.Fatalf("output SET_REPORT mapped to %+v (present %t)", output, ok)
 	}
+
+	base := len(transport.written)
+	ctx := context.Background()
+	if err := host.Complete(ctx, input, []byte{0x01, 0xAA}, nil); err != nil {
+		t.Fatal(err)
+	}
+	// An output-type SET_REPORT must answer the kernel's request.
+	if err := host.Complete(ctx, output, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := host.Complete(ctx, HostEvent{Kind: HostSetFeature, Request: 40}, nil, errors.New("boom")); err != nil {
+		t.Fatal(err)
+	}
+	if err := host.Complete(ctx, HostEvent{Kind: HostGetFeature, Request: 41}, nil, errors.New("boom")); err != nil {
+		t.Fatal(err)
+	}
+	if err := host.Complete(ctx, HostEvent{Kind: HostOutputReport}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	written := transport.written[base:]
+	if len(written) != 4*literalUHIDEventSize {
+		t.Fatalf("wrote %d reply bytes, want 4 events", len(written))
+	}
+	replies := make([][]byte, 0, 4)
+	types := make([]uint32, 0, 4)
+	for offset := 0; offset < len(written); offset += literalUHIDEventSize {
+		types = append(types, binary.LittleEndian.Uint32(written[offset:]))
+		replies = append(replies, written[offset+4:offset+literalUHIDEventSize])
+	}
+	if types[0] != uhidGetReportReply || binary.LittleEndian.Uint32(replies[0][0:4]) != 21 ||
+		binary.LittleEndian.Uint16(replies[0][4:6]) != 0 || binary.LittleEndian.Uint16(replies[0][6:8]) != 2 ||
+		!bytes.Equal(replies[0][8:10], []byte{0x01, 0xAA}) {
+		t.Fatalf("input reply type %d payload %x", types[0], replies[0][:10])
+	}
+	if types[1] != uhidSetReportReply || binary.LittleEndian.Uint32(replies[1][0:4]) != 22 ||
+		binary.LittleEndian.Uint16(replies[1][4:6]) != 0 {
+		t.Fatalf("output SET_REPORT reply type %d payload %x", types[1], replies[1][:6])
+	}
+	if types[2] != uhidSetReportReply || binary.LittleEndian.Uint32(replies[2][0:4]) != 40 ||
+		binary.LittleEndian.Uint16(replies[2][4:6]) != 5 {
+		t.Fatalf("failed SET reply type %d payload %x", types[2], replies[2][:6])
+	}
+	if types[3] != uhidGetReportReply || binary.LittleEndian.Uint32(replies[3][0:4]) != 41 ||
+		binary.LittleEndian.Uint16(replies[3][4:6]) != 5 {
+		t.Fatalf("failed GET reply type %d payload %x", types[3], replies[3][:8])
+	}
+}
+
+func TestUHIDHostCloseDestroys(t *testing.T) {
+	transport := &captureTransport{reader: bytes.NewBuffer(literalUHIDEvent(uhidStart, nil))}
+	host := newUHIDHost(func() (io.ReadWriteCloser, error) { return transport, nil })
+	if err := host.Start(context.Background(), HostConfig{
+		Name: "DualSense", Phys: "pad2go/uhid", ID: "pad2go-test",
+		VendorID: 0x054C, ProductID: 0x0CE6, Version: 0x0100,
+		Descriptor: []byte{0x05, 0x01},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	base := len(transport.written)
+	if err := host.Close(); err != nil {
+		t.Fatal(err)
+	}
+	written := transport.written[base:]
+	if len(written) != literalUHIDEventSize {
+		t.Fatalf("Close wrote %d bytes, want one DESTROY event", len(written))
+	}
+	if typ := binary.LittleEndian.Uint32(written); typ != uhidDestroy {
+		t.Fatalf("Close wrote type %d, want DESTROY %d", typ, uhidDestroy)
+	}
+}
+
+func TestUHIDOutputSetReportReplies(t *testing.T) {
+	transport := &captureTransport{reader: bytes.NewBuffer(nil)}
+	transport.reader.Write(literalUHIDEvent(uhidStart, nil))
+	set := make([]byte, 8)
+	binary.LittleEndian.PutUint32(set[0:4], 22)
+	set[4], set[5] = 0x02, uhidReportOutput
+	output := validOutputReport(9)
+	binary.LittleEndian.PutUint16(set[6:8], uint16(len(output)))
+	set = append(set, output...)
+	transport.reader.Write(literalUHIDEvent(uhidSetReport, set))
+
+	host := newUHIDHost(func() (io.ReadWriteCloser, error) { return transport, nil })
+	device, err := Open(DualSenseWired, Options{Host: host, ID: "pad2go-5e7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer device.Close()
+
+	select {
+	case feedback := <-device.Feedback():
+		if !feedback.Known || len(feedback.Raw) == 0 || feedback.Raw[0] != reportOutputID {
+			t.Fatalf("output feedback = %+v", feedback)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("output report did not reach Feedback")
+	}
+	reply := findUHIDReply(t, transport.snapshot(), uhidSetReportReply, 22)
+	if errno := binary.LittleEndian.Uint16(reply[4:6]); errno != 0 {
+		t.Fatalf("SET_REPORT reply errno %d, want 0", errno)
+	}
+}
+
+func findUHIDReply(t *testing.T, written []byte, typ, request uint32) []byte {
+	t.Helper()
+	for offset := 0; offset+literalUHIDEventSize <= len(written); offset += literalUHIDEventSize {
+		if binary.LittleEndian.Uint32(written[offset:]) == typ &&
+			binary.LittleEndian.Uint32(written[offset+4:]) == request {
+			return written[offset+4 : offset+literalUHIDEventSize]
+		}
+	}
+	t.Fatalf("no UHID type %d reply for request %d in %d written bytes", typ, request, len(written))
+	return nil
 }
 
 func TestCloseDrainsPendingEvents(t *testing.T) {

@@ -110,6 +110,12 @@ func (h *uhidHost) Complete(_ context.Context, event HostEvent, data []byte, com
 	}
 	switch event.Kind {
 	case HostOutputReport:
+		// A UHID_OUTPUT event has no request id and needs no reply. An
+		// output-type UHID_SET_REPORT does carry one, and the kernel waits for
+		// UHID_SET_REPORT_REPLY before it releases the HID client.
+		if event.Request != 0 {
+			return codec.setReportReply(uint32(event.Request), errno)
+		}
 		return nil
 	case HostGetInput, HostGetFeature:
 		return codec.getReportReply(uint32(event.Request), errno, data)
@@ -134,6 +140,9 @@ func (h *uhidHost) StopEvents() error {
 		if started {
 			<-readerDone
 		}
+		h.mu.Lock()
+		h.closed = true
+		h.mu.Unlock()
 		h.closeEvents()
 	})
 	return nil

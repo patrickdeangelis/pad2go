@@ -5,11 +5,14 @@ package hidpad
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // TestLinuxIntegration is the opt-in Linux acceptance test for AC 34.
@@ -17,20 +20,18 @@ import (
 //
 //	go test -tags integration ./internal/virtualpad/hidpad -run TestLinuxIntegration -v
 func TestLinuxIntegration(t *testing.T) {
-	if _, err := os.Stat("/dev/uhid"); err != nil {
-		t.Skipf("/dev/uhid unavailable: %v", err)
+	if err := unix.Access("/dev/uhid", unix.R_OK|unix.W_OK); err != nil {
+		t.Skipf("/dev/uhid is not readable and writable: %v", err)
 	}
-	device, err := Open(DualSenseWired, Options{})
+	id := fmt.Sprintf("pad2go-%x", os.Getpid())
+	device, err := Open(DualSenseWired, Options{ID: id})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer device.Close()
 
-	hidDir := waitForHIDDevice(t, 3*time.Second)
-	names := waitForInputDevices(t, hidDir, 3*time.Second)
-	if !hasMotionSensors(names) {
-		t.Fatalf("hid-playstation created inputs %q, want gamepad and motion sensors", names)
-	}
+	hidDir := waitForHIDDevice(t, id, 3*time.Second)
+	waitForInputDevices(t, hidDir, 3*time.Second)
 
 	raw := openHidraw(t, hidDir)
 	defer raw.Close()
@@ -55,7 +56,7 @@ func TestLinuxIntegration(t *testing.T) {
 			if !ok {
 				t.Fatal("Feedback closed before the output report arrived")
 			}
-			if feedback.Known && len(feedback.Raw) > 0 && feedback.Raw[0] == reportOutputID {
+			if bytes.Equal(feedback.Raw, output) {
 				select {
 				case <-device.Done():
 					t.Fatal("device closed after a valid input report")
@@ -64,21 +65,24 @@ func TestLinuxIntegration(t *testing.T) {
 				return
 			}
 		case <-deadline:
-			t.Fatal("no output report feedback from hidraw write")
+			t.Fatal("the hidraw output report did not arrive on Feedback")
 		}
 	}
 }
 
-func waitForHIDDevice(t *testing.T, timeout time.Duration) string {
+func waitForHIDDevice(t *testing.T, uniq string, timeout time.Duration) string {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
 		matches, _ := filepath.Glob("/sys/bus/hid/devices/0003:054C:0CE6.*")
-		if len(matches) > 0 {
-			return matches[0]
+		for _, dir := range matches {
+			data, err := os.ReadFile(filepath.Join(dir, "uniq"))
+			if err == nil && strings.TrimSpace(string(data)) == uniq {
+				return dir
+			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("hid-playstation did not bind the virtual DualSense")
+			t.Fatalf("no HID device with uniq %q; saw %v", uniq, matches)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -89,11 +93,11 @@ func waitForInputDevices(t *testing.T, hidDir string, timeout time.Duration) []s
 	deadline := time.Now().Add(timeout)
 	for {
 		names := inputDeviceNames(hidDir)
-		if len(names) >= 2 {
+		if hasGamepad(names) && hasMotionSensors(names) {
 			return names
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("hid-playstation created inputs %q, want at least two", names)
+			t.Fatalf("hid-playstation inputs %q, want a gamepad and motion sensors", names)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -109,6 +113,15 @@ func inputDeviceNames(hidDir string) []string {
 		}
 	}
 	return names
+}
+
+func hasGamepad(names []string) bool {
+	for _, name := range names {
+		if !strings.Contains(strings.ToLower(name), "motion") {
+			return true
+		}
+	}
+	return false
 }
 
 func hasMotionSensors(names []string) bool {

@@ -109,7 +109,7 @@ func (h *winUHIDHost) SubmitReport(ctx context.Context, report []byte) error {
 	if closed || handle == 0 {
 		return ErrClosed
 	}
-	return winUHIDWrite(handle, report)
+	return winUHIDWrite(ctx, handle, report)
 }
 
 func (h *winUHIDHost) Complete(_ context.Context, event HostEvent, data []byte, completionErr error) error {
@@ -150,6 +150,9 @@ func (h *winUHIDHost) StopEvents() error {
 		if started {
 			<-readerDone
 		}
+		h.mu.Lock()
+		h.closed = true
+		h.mu.Unlock()
 		h.closeEvents()
 	})
 	return nil
@@ -253,7 +256,7 @@ func winUHIDNextEvent(handle windows.Handle) ([]byte, error) {
 	return buf[:returned], nil
 }
 
-func winUHIDWrite(handle windows.Handle, report []byte) error {
+func winUHIDWrite(ctx context.Context, handle windows.Handle, report []byte) error {
 	event, err := windows.CreateEvent(nil, 1, 0, nil)
 	if err != nil {
 		return err
@@ -263,7 +266,23 @@ func winUHIDWrite(handle windows.Handle, report []byte) error {
 	var written uint32
 	err = windows.WriteFile(handle, report, &written, &overlapped)
 	if errors.Is(err, windows.ERROR_IO_PENDING) {
-		err = windows.GetOverlappedResult(handle, &overlapped, &written, true)
+		for {
+			status, waitErr := windows.WaitForSingleObject(event, 250)
+			if waitErr != nil {
+				return waitErr
+			}
+			if status != uint32(windows.WAIT_TIMEOUT) {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				_ = windows.CancelIoEx(handle, &overlapped)
+				_ = windows.GetOverlappedResult(handle, &overlapped, &written, true)
+				return ctx.Err()
+			default:
+			}
+		}
+		err = windows.GetOverlappedResult(handle, &overlapped, &written, false)
 	}
 	return err
 }

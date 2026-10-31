@@ -290,6 +290,39 @@ func TestBackpressureAndRace(t *testing.T) {
 	}
 }
 
+func TestFeedbackAfterHostComplete(t *testing.T) {
+	host := newFakeHost()
+	device, err := Open(DualSenseWired, Options{Host: host})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer device.Close()
+
+	host.mu.Lock()
+	host.blockComplete = true
+	host.mu.Unlock()
+	host.emit(HostEvent{Kind: HostOutputReport, ReportID: 0x02, Data: validOutputReport(9)})
+	select {
+	case <-host.completeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("host Complete was not called")
+	}
+	select {
+	case feedback := <-device.Feedback():
+		t.Fatalf("Feedback arrived before host completion: %+v", feedback)
+	default:
+	}
+	close(host.completeGate)
+	select {
+	case feedback := <-device.Feedback():
+		if !feedback.Known || len(feedback.Raw) == 0 || feedback.Raw[0] != reportOutputID {
+			t.Fatalf("Feedback after completion = %+v", feedback)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Feedback did not arrive after host completion")
+	}
+}
+
 func TestFeedback63(t *testing.T) {
 	report := make([]byte, 63)
 	report[0] = 0x02
@@ -517,6 +550,8 @@ func TestFeatureOverrides(t *testing.T) {
 	otherHost := newFakeHost()
 	if _, err := Open(DualSenseWired, Options{Host: otherHost, Features: bad}); !errors.Is(err, ErrBadFeature) {
 		t.Fatalf("duplicate active feature MAC error = %v, want ErrBadFeature", err)
+	} else if strings.Contains(err.Error(), device.ID()) {
+		t.Errorf("duplicate MAC error leaked the other device ID %q: %v", device.ID(), err)
 	}
 	if otherHost.startCount() != 0 {
 		t.Fatal("duplicate MAC created a host device")
@@ -655,6 +690,9 @@ type fakeHost struct {
 	blockSubmit         bool
 	submitErr           error
 	mutateCompletedData bool
+	blockComplete       bool
+	completeStarted     chan struct{}
+	completeGate        chan struct{}
 	submitStarted       chan struct{}
 	started             bool
 	starts              int
@@ -668,9 +706,11 @@ type fakeHost struct {
 
 func newFakeHost() *fakeHost {
 	return &fakeHost{
-		events:        make(chan HostEvent, 128),
-		completions:   make(chan fakeCompletion, 128),
-		submitStarted: make(chan struct{}, 1),
+		events:          make(chan HostEvent, 128),
+		completions:     make(chan fakeCompletion, 128),
+		submitStarted:   make(chan struct{}, 1),
+		completeStarted: make(chan struct{}, 1),
+		completeGate:    make(chan struct{}),
 	}
 }
 
@@ -727,7 +767,15 @@ func (h *fakeHost) SubmitReport(ctx context.Context, report []byte) error {
 func (h *fakeHost) Complete(_ context.Context, event HostEvent, response []byte, err error) error {
 	h.mu.Lock()
 	mutate := h.mutateCompletedData
+	block := h.blockComplete
 	h.mu.Unlock()
+	if block {
+		select {
+		case h.completeStarted <- struct{}{}:
+		default:
+		}
+		<-h.completeGate
+	}
 	if mutate && len(event.Data) > 3 {
 		event.Data[3] = 0xEE
 	}

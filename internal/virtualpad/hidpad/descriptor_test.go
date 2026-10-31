@@ -111,6 +111,17 @@ func TestDescriptorDeterministic(t *testing.T) {
 		if match := escapedByteLiteral.Find(source); match != nil {
 			return fmt.Errorf("escaped byte blob found in %s: %.80s", path, match)
 		}
+		if match := longHexLiteral.Find(source); match != nil {
+			return fmt.Errorf("hex-string blob found in %s: %.80s", path, match)
+		}
+		if len(hexByteToken.FindAll(source, -1)) > 200 {
+			return fmt.Errorf("large hex byte blob found in %s", path)
+		}
+		if bytes.Contains(source, []byte("hex."+"DecodeString")) ||
+			bytes.Contains(source, []byte("base64."+"StdEncoding")) ||
+			bytes.Contains(source, []byte("base64."+"RawStdEncoding")) {
+			return fmt.Errorf("encoded blob decoder found in %s", path)
+		}
 		return nil
 	})
 	if err != nil {
@@ -124,6 +135,8 @@ func TestDescriptorDeterministic(t *testing.T) {
 var (
 	numericByteLiteral = regexp.MustCompile(`(?:\b(?:0[xX][0-9A-Fa-f]{1,2}|[0-9]{1,3})\s*,\s*){12,}`)
 	escapedByteLiteral = regexp.MustCompile(`(?:\\x[0-9A-Fa-f]{2}){12,}`)
+	longHexLiteral     = regexp.MustCompile(`"[0-9A-Fa-f]{64,}"`)
+	hexByteToken       = regexp.MustCompile(`\b0[xX][0-9A-Fa-f]{2}\b`)
 )
 
 func TestDescriptorFieldSummary(t *testing.T) {
