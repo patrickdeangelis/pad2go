@@ -649,6 +649,7 @@ type fakeHost struct {
 	starts              int
 	closed              bool
 	closeOnce           sync.Once
+	stopOnce            sync.Once
 	config              HostConfig
 	submitted           [][]byte
 	completed           []fakeCompletion
@@ -727,12 +728,17 @@ func (h *fakeHost) Complete(_ context.Context, event HostEvent, response []byte,
 	return nil
 }
 
+func (h *fakeHost) StopEvents() error {
+	h.stopOnce.Do(func() { close(h.events) })
+	return nil
+}
+
 func (h *fakeHost) Close() error {
 	h.closeOnce.Do(func() {
 		h.mu.Lock()
 		h.closed = true
 		h.mu.Unlock()
-		close(h.events)
+		_ = h.StopEvents()
 	})
 	return nil
 }
@@ -742,7 +748,7 @@ func (h *fakeHost) emit(event HostEvent) {
 }
 
 func (h *fakeHost) lose() {
-	h.closeOnce.Do(func() { close(h.events) })
+	_ = h.StopEvents()
 }
 
 func (h *fakeHost) waitCompletions(t *testing.T, count int) {

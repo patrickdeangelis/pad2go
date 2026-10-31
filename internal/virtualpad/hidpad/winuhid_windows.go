@@ -31,6 +31,7 @@ type winUHIDHost struct {
 	readErr       error
 	closed        bool
 	closeOnce     sync.Once
+	stopOnce      sync.Once
 	eventsOnce    sync.Once
 	writeMu       sync.Mutex
 }
@@ -134,11 +135,10 @@ func (h *winUHIDHost) Complete(_ context.Context, event HostEvent, data []byte, 
 	}
 }
 
-func (h *winUHIDHost) Close() error {
-	h.closeOnce.Do(func() {
+func (h *winUHIDHost) StopEvents() error {
+	h.stopOnce.Do(func() {
 		h.mu.Lock()
-		h.closed = true
-		handle, done, started := h.handle, h.done, h.readerStarted
+		done, handle, started, readerDone := h.done, h.handle, h.readerStarted, h.readerDone
 		h.mu.Unlock()
 		if done != nil {
 			close(done)
@@ -148,10 +148,19 @@ func (h *winUHIDHost) Close() error {
 			_ = windows.CloseHandle(handle)
 		}
 		if started {
-			<-h.readerDone
-		} else {
-			h.closeEvents()
+			<-readerDone
 		}
+		h.closeEvents()
+	})
+	return nil
+}
+
+func (h *winUHIDHost) Close() error {
+	h.closeOnce.Do(func() {
+		_ = h.StopEvents()
+		h.mu.Lock()
+		h.closed = true
+		h.mu.Unlock()
 	})
 	return nil
 }

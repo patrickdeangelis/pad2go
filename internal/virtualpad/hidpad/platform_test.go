@@ -377,6 +377,31 @@ func TestCloseLifecycle(t *testing.T) {
 	}
 }
 
+type lateHost struct{ *fakeHost }
+
+func (h *lateHost) StopEvents() error {
+	h.emit(HostEvent{Kind: HostGetFeature, Request: 42, ReportID: 0x05})
+	return h.fakeHost.StopEvents()
+}
+
+func TestCloseDrainsLateHostEvent(t *testing.T) {
+	host := &lateHost{fakeHost: newFakeHost()}
+	device, err := Open(DualSenseWired, Options{Host: host})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := device.Close(); err != nil {
+		t.Fatal(err)
+	}
+	completion := host.receiveCompletion(t)
+	if completion.event.Request != 42 {
+		t.Fatalf("drained request %d, want 42", completion.event.Request)
+	}
+	if !errors.Is(completion.err, ErrClosed) {
+		t.Fatalf("late completion error %v, want ErrClosed", completion.err)
+	}
+}
+
 func TestCloseDrainsPendingEvents(t *testing.T) {
 	host := newFakeHost()
 	host.emit(HostEvent{Kind: HostGetFeature, Request: 9, ReportID: 0x05})

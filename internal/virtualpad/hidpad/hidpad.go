@@ -92,6 +92,7 @@ type HostEvent struct {
 // transport. Implementations must honor context cancellation for blocking I/O.
 type Host interface {
 	Start(context.Context, HostConfig) error
+	StopEvents() error
 	Events() <-chan HostEvent
 	SubmitReport(context.Context, []byte) error
 	Complete(context.Context, HostEvent, []byte, error) error
@@ -248,8 +249,9 @@ func (d *device) Close() error {
 		}
 		// Stop the host reader first: after this returns the event channel is
 		// stable, so a request cannot be enqueued between the drain and close.
-		d.closeErr = d.host.Close()
+		_ = d.host.StopEvents()
 		drainHostEvents(d.host, context.Background())
+		d.closeErr = d.host.Close()
 		releaseIdentity(d.id, d.mac)
 	})
 	return d.closeErr

@@ -27,6 +27,7 @@ type uhidHost struct {
 	readErr       error
 	closed        bool
 	closeOnce     sync.Once
+	stopOnce      sync.Once
 	eventsOnce    sync.Once
 	writeMu       sync.Mutex
 }
@@ -119,18 +120,13 @@ func (h *uhidHost) Complete(_ context.Context, event HostEvent, data []byte, com
 	}
 }
 
-func (h *uhidHost) Close() error {
-	h.closeOnce.Do(func() {
+func (h *uhidHost) StopEvents() error {
+	h.stopOnce.Do(func() {
 		h.mu.Lock()
-		h.closed = true
-		codec, rw, done, readerDone, started := h.codec, h.rw, h.done, h.readerDone, h.readerStarted
+		done, rw, started, readerDone := h.done, h.rw, h.readerStarted, h.readerDone
 		h.mu.Unlock()
-
 		if done != nil {
 			close(done)
-		}
-		if codec != nil {
-			_ = codec.destroy()
 		}
 		if rw != nil {
 			_ = rw.Close()
@@ -139,6 +135,20 @@ func (h *uhidHost) Close() error {
 			<-readerDone
 		}
 		h.closeEvents()
+	})
+	return nil
+}
+
+func (h *uhidHost) Close() error {
+	h.closeOnce.Do(func() {
+		_ = h.StopEvents()
+		h.mu.Lock()
+		h.closed = true
+		codec := h.codec
+		h.mu.Unlock()
+		if codec != nil {
+			_ = codec.destroy()
+		}
 	})
 	return nil
 }
