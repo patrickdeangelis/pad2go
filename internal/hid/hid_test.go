@@ -86,6 +86,11 @@ func (a *testApp) AddDevice(_ context.Context, d app.Device) error {
 	return nil
 }
 func (a *testApp) Full() bool { a.mu.Lock(); defer a.mu.Unlock(); return a.full }
+func (a *testApp) AddCount() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.adds
+}
 func (a *testApp) Connected(s string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -93,6 +98,15 @@ func (a *testApp) Connected(s string) bool {
 	return ok
 }
 func (a *testApp) RemoveDevice(s string) { a.mu.Lock(); defer a.mu.Unlock(); delete(a.devices, s) }
+func (a *testApp) Devices() []app.Device {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	devices := make([]app.Device, 0, len(a.devices))
+	for _, d := range a.devices {
+		devices = append(devices, d)
+	}
+	return devices
+}
 func spinScan(t *testing.T, s *Scanner, n int) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -113,7 +127,7 @@ func TestScannerDefaultIntervalAndIDs(t *testing.T) {
 	if b.opens != 1 {
 		t.Fatalf("opens=%d", b.opens)
 	}
-	for _, d := range a.devices {
+	for _, d := range a.Devices() {
 		_ = d.Close()
 	}
 }
@@ -129,8 +143,8 @@ func TestScannerNoDevicesFallback(t *testing.T) {
 	// A scanner over the stub runs and attaches nothing.
 	a := &testApp{devices: map[string]app.Device{}}
 	spinScan(t, &Scanner{Backend: b, App: a, Interval: 3 * time.Millisecond}, 3)
-	if a.adds != 0 {
-		t.Fatalf("attached %d devices from the stub", a.adds)
+	if adds := a.AddCount(); adds != 0 {
+		t.Fatalf("attached %d devices from the stub", adds)
 	}
 }
 func TestScannerDoesNotReattachAttachedDevice(t *testing.T) {
@@ -138,10 +152,10 @@ func TestScannerDoesNotReattachAttachedDevice(t *testing.T) {
 	a := &testApp{devices: map[string]app.Device{}}
 	s := &Scanner{Backend: b, App: a, Interval: 3 * time.Millisecond}
 	spinScan(t, s, 10)
-	if a.adds != 1 {
-		t.Fatalf("adds=%d", a.adds)
+	if adds := a.AddCount(); adds != 1 {
+		t.Fatalf("adds=%d", adds)
 	}
-	for _, d := range a.devices {
+	for _, d := range a.Devices() {
 		_ = d.Close()
 	}
 }
@@ -157,7 +171,7 @@ func TestDualSenseDisconnectIgnoredUntilReplug(t *testing.T) {
 	done := make(chan struct{})
 	go func() { s.Run(ctx); close(done) }()
 	deadline := time.Now().Add(time.Second)
-	for a.adds == 0 && time.Now().Before(deadline) {
+	for a.AddCount() == 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
 	a.mu.Lock()
@@ -169,8 +183,8 @@ func TestDualSenseDisconnectIgnoredUntilReplug(t *testing.T) {
 	a.RemoveDevice("ds")
 	_ = d.Close()
 	time.Sleep(25 * time.Millisecond)
-	if a.adds != 1 {
-		t.Fatalf("reattached while listed: %d", a.adds)
+	if adds := a.AddCount(); adds != 1 {
+		t.Fatalf("reattached while listed: %d", adds)
 	}
 	b.mu.Lock()
 	b.infos = nil
@@ -180,13 +194,13 @@ func TestDualSenseDisconnectIgnoredUntilReplug(t *testing.T) {
 	b.infos = []Info{{Path: "ds", VendorID: 0x054C, ProductID: 0x0CE6}}
 	b.mu.Unlock()
 	deadline = time.Now().Add(time.Second)
-	for a.adds < 2 && time.Now().Before(deadline) {
+	for a.AddCount() < 2 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
 	cancel()
 	<-done
-	if a.adds != 2 {
-		t.Fatalf("adds after replug=%d", a.adds)
+	if adds := a.AddCount(); adds != 2 {
+		t.Fatalf("adds after replug=%d", adds)
 	}
 }
 
@@ -225,8 +239,8 @@ func TestDualSenseOpenFailureRetries(t *testing.T) {
 	h := slog.NewTextHandler(&lockedWriter{mu: &logMu, w: &logs}, nil)
 	s := &Scanner{Backend: b, App: a, Interval: 4 * time.Millisecond, Log: slog.New(h)}
 	spinScan(t, s, 5)
-	if b.opens < 2 || a.adds != 1 {
-		t.Fatalf("opens=%d adds=%d", b.opens, a.adds)
+	if b.opens < 2 || a.AddCount() != 1 {
+		t.Fatalf("opens=%d adds=%d", b.opens, a.AddCount())
 	}
 	logMu.Lock()
 	out := logs.String()
@@ -234,7 +248,7 @@ func TestDualSenseOpenFailureRetries(t *testing.T) {
 	if !strings.Contains(out, "level=WARN") || !strings.Contains(out, "open DualSense") {
 		t.Fatalf("no warning logged for the failed open: %q", out)
 	}
-	for _, d := range a.devices {
+	for _, d := range a.Devices() {
 		_ = d.Close()
 	}
 }
@@ -254,9 +268,14 @@ func TestScannerRejectsBluetoothWithoutIdentity(t *testing.T) {
 	b := &testBackend{infos: []Info{{Path: "bt", VendorID: 0x054C, ProductID: 0x0CE6, Bluetooth: true}}}
 	a := &testApp{devices: map[string]app.Device{}}
 	ctx, cancel := context.WithCancel(context.Background())
-	go (&Scanner{Backend: b, App: a, Interval: 5 * time.Millisecond}).Run(ctx)
+	done := make(chan struct{})
+	go func() {
+		(&Scanner{Backend: b, App: a, Interval: 5 * time.Millisecond}).Run(ctx)
+		close(done)
+	}()
 	time.Sleep(60 * time.Millisecond)
 	cancel()
+	<-done
 	b.mu.Lock()
 	opens := b.opens
 	b.mu.Unlock()
