@@ -48,7 +48,18 @@ func (h *winUHIDHost) Start(ctx context.Context, cfg HostConfig) error {
 	if err != nil {
 		return classifyWinUHIDError(err)
 	}
+	select {
+	case <-ctx.Done():
+		_ = windows.CloseHandle(handle)
+		return ctx.Err()
+	default:
+	}
 	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		_ = windows.CloseHandle(handle)
+		return ErrClosed
+	}
 	h.handle = handle
 	h.mu.Unlock()
 
@@ -121,10 +132,7 @@ func (h *winUHIDHost) Complete(_ context.Context, event HostEvent, data []byte, 
 	if closed || handle == 0 {
 		return ErrClosed
 	}
-	status := uint32(0) // STATUS_SUCCESS
-	if completionErr != nil {
-		status = 0xC0000001 // STATUS_UNSUCCESSFUL
-	}
+	status := winUHIDStatus(completionErr)
 	switch event.Kind {
 	case HostGetInput, HostGetFeature:
 		return h.ioctlHandle(handle, winUHIDCompleteReadEvent, winUHIDCompleteReadPayload(event, data, status), nil)

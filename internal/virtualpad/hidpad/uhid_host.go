@@ -47,7 +47,18 @@ func (h *uhidHost) Start(ctx context.Context, cfg HostConfig) error {
 	if err != nil {
 		return err
 	}
+	select {
+	case <-ctx.Done():
+		_ = rw.Close()
+		return ctx.Err()
+	default:
+	}
 	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		_ = rw.Close()
+		return ErrClosed
+	}
 	h.rw = rw
 	h.codec = &uhidCodec{rw: rw}
 	h.readerStarted = true

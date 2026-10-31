@@ -340,7 +340,9 @@ func readHIDReport(handle windows.Handle, size int, timeout time.Duration) ([]by
 		}
 		if status == uint32(windows.WAIT_TIMEOUT) {
 			_ = windows.CancelIoEx(handle, &overlapped)
-			_ = windows.GetOverlappedResult(handle, &overlapped, &returned, true)
+			if err := windows.GetOverlappedResult(handle, &overlapped, &returned, true); err == nil && returned > 0 {
+				return append([]byte(nil), buf[:returned]...), nil
+			}
 			return nil, syscall.Errno(1460)
 		}
 		err = windows.GetOverlappedResult(handle, &overlapped, &returned, false)

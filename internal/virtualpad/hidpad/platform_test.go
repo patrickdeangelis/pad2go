@@ -20,16 +20,30 @@ type captureTransport struct {
 	mu      sync.Mutex
 	written []byte
 	reader  *bytes.Buffer
+	closed  bool
 }
 
 func (c *captureTransport) Write(p []byte) (int, error) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return 0, io.ErrClosedPipe
+	}
 	c.written = append(c.written, p...)
-	c.mu.Unlock()
 	return len(p), nil
 }
 func (c *captureTransport) Read(p []byte) (int, error) { return c.reader.Read(p) }
-func (c *captureTransport) Close() error               { return nil }
+func (c *captureTransport) Close() error {
+	c.mu.Lock()
+	c.closed = true
+	c.mu.Unlock()
+	return nil
+}
+func (c *captureTransport) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
 func (c *captureTransport) snapshot() []byte {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -265,6 +279,11 @@ func (t *blockingTransport) Read(p []byte) (int, error) {
 }
 
 func (t *blockingTransport) Write(p []byte) (int, error) {
+	select {
+	case <-t.closed:
+		return 0, io.ErrClosedPipe
+	default:
+	}
 	t.mu.Lock()
 	t.written = append(t.written, p...)
 	t.mu.Unlock()
@@ -445,6 +464,25 @@ func TestWinUHIDABI(t *testing.T) {
 	readEvent, err := decodeWinUHIDEvent(readRaw)
 	if err != nil || readEvent.Kind != HostGetFeature || readEvent.Request != 21 || readEvent.ReportID != 0x05 || readEvent.RequestedLength != 41 || len(readEvent.Data) != 0 {
 		t.Fatalf("decode read event: %+v %v", readEvent, err)
+	}
+}
+
+func TestDualSenseUniqOrder(t *testing.T) {
+	mac := []byte{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}
+	if got := dualsenseUniq(mac); got != "55:44:33:22:11:02" {
+		t.Fatalf("uniq %q, want the reversed form 55:44:33:22:11:02", got)
+	}
+	if got := dualsenseUniq([]byte{1, 2}); got != "" {
+		t.Fatalf("short MAC formatted as %q, want empty", got)
+	}
+}
+
+func TestWinUHIDStatusMapping(t *testing.T) {
+	if got := winUHIDStatus(nil); got != 0 {
+		t.Fatalf("success status %#x, want 0", got)
+	}
+	if got := winUHIDStatus(errors.New("boom")); got != 0xC0000001 {
+		t.Fatalf("failure status %#x, want STATUS_UNSUCCESSFUL", got)
 	}
 }
 
@@ -805,6 +843,50 @@ func TestUHIDHostRequestKinds(t *testing.T) {
 		binary.LittleEndian.Uint16(replies[3][4:6]) != 5 {
 		t.Fatalf("failed GET reply type %d payload %x", types[3], replies[3][:8])
 	}
+
+	// Request id zero is legal after the kernel counter wraps; NeedsReply must
+	// drive the reply instead of a non-zero sentinel.
+	base = len(transport.snapshot())
+	if err := host.Complete(ctx, HostEvent{Kind: HostOutputReport, NeedsReply: true}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	written = transport.snapshot()[base:]
+	if len(written) != literalUHIDEventSize {
+		t.Fatalf("request-id-zero reply wrote %d bytes, want one event", len(written))
+	}
+	if typ := binary.LittleEndian.Uint32(written); typ != uhidSetReportReply ||
+		binary.LittleEndian.Uint32(written[4:8]) != 0 {
+		t.Fatalf("request-id-zero reply type %d id %d", typ, binary.LittleEndian.Uint32(written[4:8]))
+	}
+}
+
+func TestUHIDStartAfterStopClosesTransport(t *testing.T) {
+	transport := &captureTransport{reader: bytes.NewBuffer(nil)}
+	opened := make(chan struct{})
+	release := make(chan struct{})
+	host := newUHIDHost(func() (io.ReadWriteCloser, error) {
+		close(opened)
+		<-release
+		return transport, nil
+	})
+	result := make(chan error, 1)
+	go func() {
+		result <- host.Start(context.Background(), HostConfig{
+			Name: "DualSense", Phys: "pad2go/uhid", ID: "pad2go-5e7",
+			Descriptor: []byte{0x05, 0x01},
+		})
+	}()
+	<-opened
+	if err := host.StopEvents(); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	if err := <-result; !errors.Is(err, ErrClosed) {
+		t.Fatalf("Start after Stop = %v, want ErrClosed", err)
+	}
+	if !transport.isClosed() {
+		t.Fatal("late-opened transport was not closed")
+	}
 }
 
 func TestUHIDHostCloseDestroys(t *testing.T) {
@@ -914,6 +996,39 @@ func winUHIDTestEvent(eventType uint32, request uint32, reportID byte, data []by
 	binary.LittleEndian.PutUint32(raw[9:13], uint32(len(data)))
 	copy(raw[13:], data)
 	return raw
+}
+
+func TestWinUHIDReadLoopStopsWhenDone(t *testing.T) {
+	done := make(chan struct{})
+	close(done)
+	calls := 0
+	next := func() ([]byte, error) {
+		calls++
+		return nil, syscall.Errno(1460)
+	}
+	if err := winUHIDReadLoop(next, make(chan HostEvent, 1), done, nil); err != nil {
+		t.Fatalf("closed done returned %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("next called %d times after done closed", calls)
+	}
+
+	done = make(chan struct{})
+	calls = 0
+	next = func() ([]byte, error) {
+		calls++
+		if calls == 1 {
+			close(done)
+			return nil, syscall.Errno(1460)
+		}
+		return nil, io.EOF
+	}
+	if err := winUHIDReadLoop(next, make(chan HostEvent, 1), done, nil); err != nil {
+		t.Fatalf("timeout after done returned %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("next called %d times, want one", calls)
+	}
 }
 
 func TestWinUHIDBadWriteCompletes(t *testing.T) {

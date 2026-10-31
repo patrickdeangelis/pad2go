@@ -140,3 +140,13 @@ func supportedPlatform(goos, arch string) bool {
 func validLocalUnicastMAC(mac []byte) bool {
 	return len(mac) == 6 && mac[0]&0x02 != 0 && mac[0]&0x01 == 0
 }
+
+// dualsenseUniq formats the feature 0x09 MAC the way hid-playstation does.
+// The driver stores the bytes in little-endian order and prints hdev->uniq
+// with %pMR, which reverses them into the conventional colon form.
+func dualsenseUniq(mac []byte) string {
+	if len(mac) != 6 {
+		return ""
+	}
+	return fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x", mac[5], mac[4], mac[3], mac[2], mac[1], mac[0])
+}

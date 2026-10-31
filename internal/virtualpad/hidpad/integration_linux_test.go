@@ -37,7 +37,9 @@ func TestLinuxIntegration(t *testing.T) {
 	}
 	defer device.Close()
 
-	uniq := fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5])
+	// hid-playstation stores the feature 0x09 MAC in little-endian order and
+	// prints it with %pMR, which reverses the bytes into the conventional form.
+	uniq := dualsenseUniq(mac)
 	hidDir := waitForHIDDevice(t, uniq, 5*time.Second)
 	waitForInputDevices(t, hidDir, 3*time.Second)
 
@@ -147,7 +149,8 @@ func inputDeviceNames(hidDir string) []string {
 
 func hasGamepad(names []string) bool {
 	for _, name := range names {
-		if !strings.Contains(strings.ToLower(name), "motion") {
+		lower := strings.ToLower(name)
+		if strings.Contains(lower, "dualsense") && !strings.Contains(lower, "motion") && !strings.Contains(lower, "touchpad") {
 			return true
 		}
 	}

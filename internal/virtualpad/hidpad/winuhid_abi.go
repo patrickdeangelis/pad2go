@@ -147,6 +147,13 @@ func checkWinUHIDInterfaceVersion(version uint32) error {
 	return nil
 }
 
+func winUHIDStatus(completionErr error) uint32 {
+	if completionErr != nil {
+		return 0xC0000001 // STATUS_UNSUCCESSFUL
+	}
+	return 0 // STATUS_SUCCESS
+}
+
 func winUHIDReadLoop(next func() ([]byte, error), events chan<- HostEvent, done <-chan struct{}, fail func(HostEvent, error)) error {
 	for {
 		select {
