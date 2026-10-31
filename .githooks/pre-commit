@@ -1,0 +1,21 @@
+#!/bin/sh
+# pad2go pre-commit hook: gofmt + go vet.
+# Installed via: git config core.hooksPath .githooks
+set -eu
+
+# 1. gofmt check on staged Go files only (fast, no surprises from unrelated files).
+staged=$(git diff --cached --name-only --diff-filter=ACM -- '*.go')
+if [ -n "$staged" ]; then
+	# shellcheck disable=SC2086
+	unformatted=$(echo "$staged" | xargs gofmt -l)
+	if [ -n "$unformatted" ]; then
+		echo "pre-commit: unformatted Go files (run gofmt -w):" >&2
+		echo "$unformatted" >&2
+		exit 1
+	fi
+fi
+
+# 2. go vet with the dev-build tags (mirrors CI's second vet).
+# The default-tags vet needs a CGO toolchain for WebView, which contributors
+# on a fresh machine may not have; CI covers the default tag set.
+go vet -tags nowebview,nobluetooth ./...
