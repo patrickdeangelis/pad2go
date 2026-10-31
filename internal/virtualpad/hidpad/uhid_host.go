@@ -77,6 +77,17 @@ func (h *uhidHost) Start(ctx context.Context, cfg HostConfig) error {
 	select {
 	case <-h.started:
 		return nil
+	case <-h.readerDone:
+		select {
+		case <-h.started:
+			return nil
+		default:
+			_ = h.Close()
+			if err := h.Err(); err != nil {
+				return fmt.Errorf("read UHID events: %w", err)
+			}
+			return ErrStartTimeout
+		}
 	case <-ctx.Done():
 		_ = h.Close()
 		return ctx.Err()

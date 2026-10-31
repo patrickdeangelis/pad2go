@@ -860,6 +860,39 @@ func TestUHIDHostRequestKinds(t *testing.T) {
 	}
 }
 
+func TestUHIDStartCanceledAfterOpenClosesTransport(t *testing.T) {
+	transport := &captureTransport{reader: bytes.NewBuffer(nil)}
+	host := newUHIDHost(func() (io.ReadWriteCloser, error) { return transport, nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := host.Start(ctx, HostConfig{
+		Name: "DualSense", Phys: "pad2go/uhid", ID: "pad2go-5e7",
+		Descriptor: []byte{0x05, 0x01},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Start with canceled ctx = %v, want context.Canceled", err)
+	}
+	if !transport.isClosed() {
+		t.Fatal("transport opened after cancellation was not closed")
+	}
+}
+
+func TestUHIDStartReaderError(t *testing.T) {
+	transport := &captureTransport{reader: bytes.NewBuffer(nil)}
+	host := newUHIDHost(func() (io.ReadWriteCloser, error) { return transport, nil })
+	start := time.Now()
+	err := host.Start(context.Background(), HostConfig{
+		Name: "DualSense", Phys: "pad2go/uhid", ID: "pad2go-5e7",
+		Descriptor: []byte{0x05, 0x01},
+	})
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("Start with an EOF reader = %v, want io.EOF", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("Start waited %s for the reader error, want under one second", elapsed)
+	}
+}
+
 func TestUHIDStartAfterStopClosesTransport(t *testing.T) {
 	transport := &captureTransport{reader: bytes.NewBuffer(nil)}
 	opened := make(chan struct{})

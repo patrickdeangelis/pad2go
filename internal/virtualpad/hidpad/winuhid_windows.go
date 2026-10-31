@@ -97,6 +97,11 @@ func (h *winUHIDHost) Start(ctx context.Context, cfg HostConfig) error {
 	}
 
 	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		_ = h.Close()
+		return ErrClosed
+	}
 	h.readerStarted = true
 	h.mu.Unlock()
 	go h.readLoop()
