@@ -38,6 +38,8 @@ type Backend interface {
 	Watch(player int) (<-chan app.Sample, func(), error)
 	TestRumble(player int) error
 	Disconnect(player int) error
+	SetDefaultOutput(kind string, apply bool) error
+	SetPlayerOutput(player int, kind string) error
 }
 
 // Server is the web interface.
@@ -64,6 +66,8 @@ func Handler(b Backend, port int, log *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /api/state", s.state)
 	mux.HandleFunc("GET /api/events", s.events)
 	mux.HandleFunc("PUT /api/config", s.saveConfig)
+	mux.HandleFunc("POST /api/output", s.output)
+	mux.HandleFunc("POST /api/players/{n}/output", s.playerOutput)
 	mux.HandleFunc("POST /api/restart", s.restart)
 	mux.HandleFunc("POST /api/bluetooth/settings", s.bluetoothSettings)
 	mux.HandleFunc("GET /api/diagnostics", s.diagnostics)
@@ -134,6 +138,46 @@ func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
 	s.b.Restart()
 	w.WriteHeader(http.StatusAccepted)
+}
+
+func (s *Server) output(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Backend string `json:"backend"`
+		Apply   bool   `json:"apply"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid output: %w", err))
+		return
+	}
+	if err := s.b.SetDefaultOutput(body.Backend, body.Apply); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.b.Snapshot())
+}
+
+func (s *Server) playerOutput(w http.ResponseWriter, r *http.Request) {
+	n, err := player(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	var body struct {
+		Output string `json:"output"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid output: %w", err))
+		return
+	}
+	if err := s.b.SetPlayerOutput(n, body.Output); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.b.Snapshot())
 }
 
 func (s *Server) bluetoothSettings(w http.ResponseWriter, r *http.Request) {

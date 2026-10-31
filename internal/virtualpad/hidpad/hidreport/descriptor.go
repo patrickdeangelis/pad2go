@@ -40,6 +40,30 @@ func (b *descriptorBuilder) usage(usage uint16) {
 	b.item(localItem, 0, uint32(usage), 2)
 }
 
+func (b *descriptorBuilder) usageMinimum(usage uint16) {
+	if usage <= 0xFF {
+		b.item(localItem, 1, uint32(usage), 1)
+		return
+	}
+	b.item(localItem, 1, uint32(usage), 2)
+}
+
+func (b *descriptorBuilder) usageMaximum(usage uint16) {
+	if usage <= 0xFF {
+		b.item(localItem, 2, uint32(usage), 1)
+		return
+	}
+	b.item(localItem, 2, uint32(usage), 2)
+}
+
+func (b *descriptorBuilder) collection(kind byte) {
+	b.item(mainItem, 10, uint32(kind), 1)
+}
+
+func (b *descriptorBuilder) endCollection() {
+	b.item(mainItem, 12, 0, 0)
+}
+
 func (b *descriptorBuilder) reportID(id byte) {
 	b.item(globalItem, 8, uint32(id), 1)
 }
@@ -125,6 +149,81 @@ func BuildDualSense() []byte {
 		b.feature(0x02)
 	}
 	b.item(mainItem, 12, 0, 0)
+	return b.data
+}
+
+// BuildSwitchPro constructs the report descriptor for a Switch Pro
+// Controller. It follows the field layout of the controller's published
+// descriptor: report 0x30 carries 18 buttons, four 16-bit axes, a hat and 52
+// opaque bytes; reports 0x21 and 0x81 and the output reports are 63 opaque
+// bytes. Every report is 64 bytes including its ID, which is what SDL's
+// HIDAPI Switch driver and USB HID clients expect.
+func BuildSwitchPro() []byte {
+	b := descriptorBuilder{data: make([]byte, 0, 190)}
+	b.usagePage(0x01)
+	b.item(globalItem, 1, 0, 1) // logical minimum 0
+	b.usage(0x04)               // Joystick
+	b.collection(0x01)
+
+	b.reportID(0x30)
+	b.usagePage(0x09)
+	b.usageMinimum(0x01)
+	b.usageMaximum(0x0E)
+	b.item(globalItem, 2, 1, 1) // logical maximum 1
+	b.reportSize(1)
+	b.reportCount(14)
+	b.input(0x02)
+	b.reportSize(1)
+	b.reportCount(2)
+	b.input(0x03) // two pad bits, completing the button bytes
+
+	b.usagePage(0x01)
+	b.usage(0x30) // X
+	b.usage(0x31) // Y
+	b.usage(0x32) // Z
+	b.usage(0x35) // Rz
+	b.item(globalItem, 2, 0xFFFF, 2)
+	b.reportSize(16)
+	b.reportCount(4)
+	b.input(0x02)
+
+	b.usage(0x39) // Hat switch
+	b.item(globalItem, 2, 7, 1)
+	b.item(globalItem, 3, 0, 1)    // physical minimum
+	b.item(globalItem, 4, 315, 2)  // physical maximum
+	b.item(globalItem, 6, 0x14, 1) // unit: rotation in degrees
+	b.reportSize(4)
+	b.reportCount(1)
+	b.input(0x02)
+
+	b.usagePage(0x09)
+	b.usageMinimum(0x0F)
+	b.usageMaximum(0x12)
+	b.item(globalItem, 2, 1, 1)
+	b.reportSize(1)
+	b.reportCount(4)
+	b.input(0x02)
+
+	b.reportSize(8)
+	b.reportCount(52)
+	b.input(0x03)
+
+	b.usagePage(0xFF00)
+	for i, id := range []byte{0x21, 0x81} {
+		b.reportID(id)
+		b.usage(uint16(0x01 + i))
+		b.reportSize(8)
+		b.reportCount(63)
+		b.input(0x03)
+	}
+	for i, id := range []byte{0x01, 0x10, 0x80, 0x82} {
+		b.reportID(id)
+		b.usage(uint16(0x03 + i))
+		b.reportSize(8)
+		b.reportCount(63)
+		b.output(0x83)
+	}
+	b.endCollection()
 	return b.data
 }
 

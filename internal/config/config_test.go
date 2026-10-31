@@ -52,6 +52,7 @@ func TestOriginalConfigCompatible(t *testing.T) {
 func TestValidate(t *testing.T) {
 	bad := []func(*Config){
 		func(c *Config) { c.Output = "dinput" },
+		func(c *Config) { c.OutputOverrides = map[string]string{"AA": "bogus"} },
 		func(c *Config) { c.ABXYMode = "PS" },
 		func(c *Config) { c.VibrationStrength = 11 },
 		func(c *Config) { c.MaxControllers = 0 },
@@ -69,6 +70,7 @@ func TestValidate(t *testing.T) {
 	}
 	ds := Default()
 	ds.Output = "dualsense"
+	ds.OutputOverrides = map[string]string{"AA:BB:CC:DD:EE:FF": "switch"}
 	if err := ds.Validate(); err != nil {
 		t.Fatalf("dualsense output: %v", err)
 	}

@@ -86,7 +86,7 @@
           <h2 class="group-title">Conexão</h2>
           <div class="group">
             <div class="row"><span class="row-icon" data-icon="bluetooth"></span><div class="row-label"><span>Bluetooth</span><small id="bluetooth-state">Iniciando…</small></div></div>
-            <div class="row"><span class="row-icon" data-icon="monitor"></span><div class="row-label"><span id="output-name">Saída</span><small id="output-detail"></small></div></div>
+            <div class="row"><span class="row-icon" data-icon="monitor"></span><div class="row-label"><span>Saída padrão</span><small id="output-detail"></small></div><div class="row-control"><select id="output-default" aria-label="Saída padrão"><option value="auto">Automático</option><option value="xbox">Xbox 360</option><option value="dualsense">DualSense</option><option value="switch">Switch Pro</option><option value="none">Somente movimento</option></select><button type="button" class="push small" id="apply-output" title="Aplicar aos players atuais">Aplicar</button></div></div>
             <label class="row"><div class="row-label"><span>Unir Joy-Cons</span><small>Um par, um jogador</small></div><div class="row-control"><input type="checkbox" switch class="switch" data-config="combine"></div></label>
             <label class="row"><div class="row-label"><span>Movimento para emuladores</span><small>Giroscópio via DSU</small></div><div class="row-control"><input type="checkbox" switch class="switch" data-config="gyro"></div></label>
           </div>
@@ -151,7 +151,7 @@
 
           <h2 class="group-title">Conexão</h2>
           <div class="group">
-            <div class="row"><div class="row-label"><label for="backend">Saída</label></div><div class="row-control"><select id="backend" data-config="backend"><option value="auto">Automática</option><option value="vigem">ViGEmBus · Windows</option><option value="uinput">uinput · Linux</option><option value="dualsense">DualSense - WinUHid / uhid</option><option value="none">Somente movimento</option></select></div></div>
+            <div class="row"><div class="row-label"><label for="backend">Saída</label></div><div class="row-control"><select id="backend" data-config="backend"><option value="auto">Automática</option><option value="vigem">ViGEmBus · Windows</option><option value="uinput">uinput · Linux</option><option value="xbox">Xbox 360</option><option value="dualsense">DualSense - WinUHid / uhid</option><option value="switch">Switch Pro - WinUHid / uhid</option><option value="none">Somente movimento</option></select></div></div>
             <div class="row"><div class="row-label"><label for="max">Máximo de jogadores</label></div><div class="row-control"><select id="max" data-config="max"><option>4</option><option>8</option></select></div></div>
             <div class="row"><div class="row-label"><label for="host-mac">Endereço Bluetooth do PC</label><small class="field-error" id="hostMac-error"></small></div><div class="row-control"><input id="host-mac" type="text" data-config="hostMac" spellcheck="false" aria-describedby="hostMac-error"></div></div>
             <div class="row"><div class="row-label"><label for="hold">Joy-Con avulso</label><small>Posição padrão</small></div><div class="row-control"><select id="hold" data-config="hold"><option value="Vertical">Vertical</option><option value="Horizontal">Horizontal</option></select></div></div>

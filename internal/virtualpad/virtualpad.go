@@ -1,5 +1,6 @@
-// Package virtualpad exposes virtual Xbox 360 controllers to the OS:
-// ViGEmBus on Windows, uinput on Linux, and a no-op backend elsewhere.
+// Package virtualpad exposes virtual controllers to the OS: Xbox 360 through
+// ViGEmBus (Windows) or uinput (Linux), and report-level DualSense and Switch
+// Pro devices through WinUHid (Windows) or /dev/uhid (Linux).
 package virtualpad
 
 import (
@@ -13,7 +14,7 @@ import (
 // small (high-frequency) motor strengths, 0-255.
 type RumbleFunc func(large, small uint8)
 
-// Pad is one virtual Xbox 360 controller.
+// Pad is one virtual controller.
 type Pad interface {
 	Update(mapping.XboxState) error
 	Close() error
@@ -33,13 +34,15 @@ type FramePad interface {
 }
 
 // Open returns the backend named by kind ("auto", "vigem", "uinput",
-// "dualsense", "none").
+// "dualsense", "switch", "none").
 func Open(kind string) (Backend, error) {
 	switch kind {
 	case "none":
 		return Null{}, nil
 	case "dualsense":
 		return openDualSense()
+	case "switch":
+		return openSwitch()
 	case "auto":
 		if platformName == "" {
 			// No virtual gamepads here (macOS): run motion-only (DSU).

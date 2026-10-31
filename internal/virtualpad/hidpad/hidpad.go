@@ -104,6 +104,10 @@ type Host interface {
 	Close() error
 }
 
+// OpenPlatformHost returns the platform HID host used by virtual devices.
+// Other report-level profiles share the same WinUHid/UHID transport.
+func OpenPlatformHost() (Host, error) { return openPlatformHost() }
+
 // Open starts a device and submits its neutral input report before returning.
 func Open(profile Profile, options Options) (Device, error) {
 	if profile.name == "" || profile.vendorID == 0 || profile.productID == 0 {
