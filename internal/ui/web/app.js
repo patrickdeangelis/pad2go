@@ -416,6 +416,11 @@
 
     const file = virtualKind === 'switch' ? 'pro' : 'ds';
     let svg = await controllerSVG(file);
+    if (virtualKind === 'switch') {
+      // The virtual target is a Switch 1 Pro Controller (057E:2009), which has
+      // Capture but not the Switch 2 Chat/C button present in the shared art.
+      svg = svg.replace(/<g class="control" data-key="TOUCH"[\s\S]*?<\/g>/, '');
+    }
     svg = svg.replace(/id="([^"]+)"/g, 'id="vo-$1"').replace(/url\(#([^)]+)\)/g, 'url(#vo-$1)');
     root.className = 'input-pad virtual-hardware';
     root.innerHTML = `<div class="hardware-set virtual-set">${svg}</div>`;
