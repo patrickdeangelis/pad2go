@@ -141,7 +141,7 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 
 | Key | Meaning |
 | --- | --- |
-| `output` | `auto`, `vigem`, `uinput` or `none` |
+| `output` | `auto`, `vigem`, `uinput`, `dualsense` or `none` |
 | `host_mac` | this PC's Bluetooth MAC; auto-detected on Windows/Linux |
 | `abxy_mode` | `Xbox` (positional: Switch B → Xbox A) or `Switch` (by label) |
 | `combine_joycons` | merge a left + right Joy-Con into one pad |
@@ -155,6 +155,8 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 | `dualsense_trigger_left`, `dualsense_trigger_right` | DualSense adaptive trigger presets |
 | `gyro_passthrough_mode` | `Cemuhook` enables the DSU server (`cemuhook_host`, `cemuhook_port`) |
 | `home_mapping`, `capt_mapping`, `c_mapping`, `gl_mapping`, `gr_mapping`, `sll/srl/slr/srr_mapping` | `Default`, `None`, or a Switch button name |
+
+`output: dualsense` creates a virtual DualSense instead of an Xbox 360 pad. It carries touch, motion, analog triggers and rumble, and requires WinUHid on Windows (`\\.\WinUHid`) or `/dev/uhid` on Linux. `auto` still selects ViGEmBus/uinput. If a game sees both the physical and the virtual DualSense, hide the physical one with HidHide.
 
 ## Controller and output support
 
@@ -170,6 +172,7 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 | Joy-Con merging, vertical/horizontal single Joy-Con | ✅ |
 | Xbox 360 output via ViGEmBus (Windows) | ✅ |
 | Xbox 360 output via uinput (Linux) | ✅ |
+| DualSense virtual output via WinUHid (Windows) or uhid (Linux) | ✅ (driver required) |
 | Game rumble → HD rumble (LF/HF, strength, delay) | ✅ (basic mapping) |
 | CemuHook/DSU motion server | ✅ |
 | Extra-button remaps to controller buttons | ✅ |

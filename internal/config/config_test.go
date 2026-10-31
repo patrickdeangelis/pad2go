@@ -67,6 +67,11 @@ func TestValidate(t *testing.T) {
 	if err := Default().Validate(); err != nil {
 		t.Fatal(err)
 	}
+	ds := Default()
+	ds.Output = "dualsense"
+	if err := ds.Validate(); err != nil {
+		t.Fatalf("dualsense output: %v", err)
+	}
 }
 
 func TestParseMAC(t *testing.T) {

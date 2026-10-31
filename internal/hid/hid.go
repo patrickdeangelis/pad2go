@@ -4,11 +4,17 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/patrickdeangelis/pad2go/internal/app"
 	"github.com/patrickdeangelis/pad2go/internal/dualsense"
+	"github.com/patrickdeangelis/pad2go/internal/protocol"
 )
+
+func isVirtualMAC(mac string) bool {
+	return strings.HasPrefix(strings.ToLower(mac), protocol.VirtualMACPrefix)
+}
 
 type Info struct {
 	Path                string
@@ -152,6 +158,10 @@ func (s *Scanner) Run(ctx context.Context) {
 				if address := mac.MAC(); address != "" {
 					id = address
 				}
+			}
+			if isVirtualMAC(id) {
+				_ = tr.Close()
+				continue
 			}
 			// Never merge two unknown identities or expose the same controller
 			// twice when transport identity cannot be established.

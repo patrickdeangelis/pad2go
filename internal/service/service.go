@@ -201,7 +201,11 @@ func (s *Service) runOnce(ctx context.Context, cfg *config.Config) {
 	a.OnChange(s.appChanged)
 	defer a.Close()
 	s.mu.Lock()
-	s.app, s.dsu, s.backend = a, server, backend.Name()
+	kind := backend.Name()
+	if k, ok := backend.(interface{ Kind() string }); ok {
+		kind = k.Kind()
+	}
+	s.app, s.dsu, s.backend = a, server, kind
 	if _, ok := backend.(virtualpad.Null); ok {
 		s.backend = "none"
 	}
@@ -511,6 +515,13 @@ func (s *Service) Snapshot() Snapshot {
 		if s.applied.CemuhookEnabled() {
 			snap.Output.Detail = "DSU ativo"
 		}
+	case s.backend == "dualsense":
+		snap.Output.Name = "DualSense virtual"
+		if platform == "Windows" {
+			snap.Output.Detail = "Windows - WinUHid"
+		} else {
+			snap.Output.Detail = platform + " - /dev/uhid"
+		}
 	case platform == "Windows":
 		snap.Output.Detail = "Windows · ViGEmBus"
 	default:
@@ -567,7 +578,7 @@ type Check struct {
 // Diagnostics checks Bluetooth and the virtual output prerequisites.
 func (s *Service) Diagnostics() []Check {
 	s.mu.Lock()
-	fault, radio, hostMAC := s.fault, s.radio, s.saved.HostMAC
+	fault, radio, hostMAC, output := s.fault, s.radio, s.saved.HostMAC, s.saved.Output
 	s.mu.Unlock()
 	bt := Check{Name: "Bluetooth", OK: radio != nil, Detail: "ativo", Help: "bluetooth"}
 	if fault != nil && fault.Kind == "bluetooth" {
@@ -576,8 +587,18 @@ func (s *Service) Diagnostics() []Check {
 		bt.OK, bt.Detail = true, "não iniciado"
 	}
 	checks := []Check{bt}
-	for _, c := range virtualpad.Diagnose() {
-		checks = append(checks, Check{Name: c.Name, OK: c.OK, Detail: c.Detail, Help: c.Help})
+	if output == "dualsense" {
+		check := Check{Name: "DualSense virtual", OK: true, Detail: "disponível", Help: "output"}
+		if backend, err := virtualpad.Open("dualsense"); err != nil {
+			check.OK, check.Detail = false, err.Error()
+		} else {
+			_ = backend.Close()
+		}
+		checks = append(checks, check)
+	} else {
+		for _, c := range virtualpad.Diagnose() {
+			checks = append(checks, Check{Name: c.Name, OK: c.OK, Detail: c.Detail, Help: c.Help})
+		}
 	}
 	if Platform() == "macOS" {
 		checks = append(checks,

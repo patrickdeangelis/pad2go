@@ -198,9 +198,9 @@ func (c *Config) Validate() error {
 		return errors.New("dualsense_brightness: want 0-100")
 	}
 	switch c.Output {
-	case "auto", "vigem", "uinput", "none":
+	case "auto", "vigem", "uinput", "dualsense", "none":
 	default:
-		return fmt.Errorf("output: unknown backend %q (want auto, vigem, uinput or none)", c.Output)
+		return fmt.Errorf("output: unknown backend %q (want auto, vigem, uinput, dualsense or none)", c.Output)
 	}
 	if c.ABXYMode != "Xbox" && c.ABXYMode != "Switch" {
 		return fmt.Errorf("abxy_mode: want Xbox or Switch, got %q", c.ABXYMode)
@@ -295,7 +295,8 @@ func ParseMAC(s string) (uint64, error) {
 const Sample = `# pad2go configuration.
 # Key names match the original Switch2Connect config.yaml where possible.
 
-# Virtual gamepad backend: auto | vigem (Windows) | uinput (Linux) | none
+# Virtual gamepad backend: auto | vigem (Windows) | uinput (Linux) |
+# dualsense (WinUHid on Windows, /dev/uhid on Linux) | none
 output: auto
 
 # This PC's Bluetooth MAC. Needed to pair controllers so they reconnect with a

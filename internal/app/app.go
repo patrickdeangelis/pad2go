@@ -315,8 +315,14 @@ func (s *slot) onInput(m *member, in protocol.Input) {
 		for _, x := range s.members {
 			pressed |= x.pressed
 		}
-		if err := s.out.Update(f.Xbox); err != nil {
-			a.log.Debug("virtual pad update failed", "err", err)
+		var updateErr error
+		if fp, ok := s.out.(virtualpad.FramePad); ok {
+			updateErr = fp.UpdateFrame(f)
+		} else {
+			updateErr = s.out.Update(f.Xbox)
+		}
+		if updateErr != nil {
+			a.log.Debug("virtual pad update failed", "err", updateErr)
 		}
 		for w := range s.watchers {
 			select {

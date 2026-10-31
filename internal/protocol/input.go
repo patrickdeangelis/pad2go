@@ -7,6 +7,10 @@ import (
 	"strings"
 )
 
+// VirtualMACPrefix marks a MAC generated for a pad2go virtual DualSense.
+// The physical scanner skips these to avoid attaching the virtual pad back.
+const VirtualMACPrefix = "02:50:32:"
+
 func u16(b []byte) uint16 { return binary.LittleEndian.Uint16(b) }
 func s16(b []byte) int16  { return int16(binary.LittleEndian.Uint16(b)) }
 

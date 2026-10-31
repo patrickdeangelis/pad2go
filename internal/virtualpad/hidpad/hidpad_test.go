@@ -133,6 +133,16 @@ func TestOpenStartTimeout(t *testing.T) {
 	}
 }
 
+func TestIdentityMACPrefix(t *testing.T) {
+	mac := identityMAC("pad2go-abc")
+	if mac[0] != 0x02 || mac[1] != 0x50 || mac[2] != 0x32 {
+		t.Fatalf("identity MAC %x does not start with 02:50:32", mac)
+	}
+	if !validLocalUnicastMAC(mac) {
+		t.Fatalf("identity MAC %x is not locally administered unicast", mac)
+	}
+}
+
 func TestIdentityAndMAC(t *testing.T) {
 	firstHost, secondHost := newFakeHost(), newFakeHost()
 	if _, err := Open(DualSenseWired, Options{ID: "not-an-identity", Host: newFakeHost()}); !errors.Is(err, ErrBadFeature) {

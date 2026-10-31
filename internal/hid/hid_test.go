@@ -116,6 +116,15 @@ func spinScan(t *testing.T, s *Scanner, n int) {
 	cancel()
 	<-done
 }
+func TestVirtualMACFilter(t *testing.T) {
+	if !isVirtualMAC("02:50:32:aa:bb:cc") || !isVirtualMAC("02:50:32:AA:BB:CC") {
+		t.Fatal("pad2go virtual MAC was not recognized")
+	}
+	if isVirtualMAC("02:11:22:33:44:55") || isVirtualMAC("") {
+		t.Fatal("physical or empty MAC was treated as virtual")
+	}
+}
+
 func TestScannerDefaultIntervalAndIDs(t *testing.T) {
 	if DefaultInterval != time.Second {
 		t.Fatalf("interval %v", DefaultInterval)

@@ -48,6 +48,58 @@ func (d *lightingDev) SetLighting(color [3]byte, brightness byte, off bool) erro
 	return nil
 }
 
+type framePad struct {
+	mu     sync.Mutex
+	frames []mapping.Frame
+}
+
+func (p *framePad) Update(mapping.XboxState) error { return nil }
+func (p *framePad) UpdateFrame(f mapping.Frame) error {
+	p.mu.Lock()
+	p.frames = append(p.frames, f)
+	p.mu.Unlock()
+	return nil
+}
+func (p *framePad) Close() error { return nil }
+
+type frameBackend struct{ pad *framePad }
+
+func (b *frameBackend) Name() string { return "frame" }
+func (b *frameBackend) NewPad(virtualpad.RumbleFunc) (virtualpad.Pad, error) {
+	if b.pad == nil {
+		b.pad = &framePad{}
+	}
+	return b.pad, nil
+}
+func (b *frameBackend) Close() error { return nil }
+
+func TestDualSenseFramePadReceivesFullFrame(t *testing.T) {
+	backend := &frameBackend{}
+	a := New(config.Default(), backend, nil, nil)
+	d := newDev("ds", 0)
+	d.kind = protocol.KindDualSense
+	if err := a.AddDevice(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+
+	touch := [2]protocol.TouchContact{{Active: true, ID: 1, X: 100, Y: 200}}
+	d.send(protocol.Input{
+		Buttons: protocol.BtnB, Left: protocol.Stick{X: 0.25},
+		LeftTrigger: 123, AnalogTriggers: true, Touch: touch,
+	})
+	backend.pad.mu.Lock()
+	defer backend.pad.mu.Unlock()
+	if len(backend.pad.frames) == 0 {
+		t.Fatal("FramePad did not receive an update")
+	}
+	f := backend.pad.frames[len(backend.pad.frames)-1]
+	if f.Player.Buttons != protocol.BtnB || f.Player.LeftTrigger != 123 ||
+		!f.Player.Touch[0].Active || f.Player.Touch[0].X != 100 {
+		t.Fatalf("frame %+v", f.Player)
+	}
+}
+
 func TestDualSenseLightingAppliedOnAttach(t *testing.T) {
 	a, _ := newApp(t, func(c *config.Config) {
 		c.DualSenseLighting = true

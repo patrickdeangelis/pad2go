@@ -18,3 +18,12 @@ func openUHIDDevice() (io.ReadWriteCloser, error) {
 	}
 	return f, nil
 }
+
+// Check reports whether /dev/uhid can be opened, without creating a device.
+func Check() error {
+	f, err := openUHIDDevice()
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}

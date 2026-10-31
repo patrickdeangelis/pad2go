@@ -26,11 +26,20 @@ type Backend interface {
 	Close() error
 }
 
-// Open returns the backend named by kind ("auto", "vigem", "uinput", "none").
+// FramePad is implemented by pads that can use the whole mapped frame
+// (buttons, sticks, triggers, touch and motion) instead of only Xbox state.
+type FramePad interface {
+	UpdateFrame(mapping.Frame) error
+}
+
+// Open returns the backend named by kind ("auto", "vigem", "uinput",
+// "dualsense", "none").
 func Open(kind string) (Backend, error) {
 	switch kind {
 	case "none":
 		return Null{}, nil
+	case "dualsense":
+		return openDualSense()
 	case "auto":
 		if platformName == "" {
 			// No virtual gamepads here (macOS): run motion-only (DSU).

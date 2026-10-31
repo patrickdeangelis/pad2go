@@ -107,7 +107,8 @@ func releaseIdentity(id string, mac []byte) {
 func identityMAC(id string) []byte {
 	sum := sha256.Sum256([]byte(id))
 	mac := append([]byte(nil), sum[:6]...)
-	mac[0] = (mac[0] & 0xFE) | 0x02
+	mac[0] = 0x02               // locally administered, unicast
+	mac[1], mac[2] = 0x50, 0x32 // "P2": the pad2go virtual-device prefix
 	return mac
 }
 

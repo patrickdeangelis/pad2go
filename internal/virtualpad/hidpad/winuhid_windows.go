@@ -21,6 +21,23 @@ func openPlatformHost() (Host, error) {
 	}, nil
 }
 
+// Check reports whether the WinUHid control device can be opened, without
+// creating a virtual device.
+func Check() error {
+	path, err := windows.UTF16PtrFromString(winUHIDDevicePath)
+	if err != nil {
+		return err
+	}
+	handle, err := windows.CreateFile(path,
+		windows.GENERIC_READ|windows.GENERIC_WRITE,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil, windows.OPEN_EXISTING, 0, 0)
+	if err != nil {
+		return classifyWinUHIDError(err)
+	}
+	return windows.CloseHandle(handle)
+}
+
 type winUHIDHost struct {
 	mu            sync.Mutex
 	handle        windows.Handle
