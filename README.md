@@ -10,6 +10,8 @@ A Go port of [TommyWabg/Switch2Connect](https://github.com/TommyWabg/Switch2Conn
 connect **Switch 2 Joy-Cons**, the **Switch 2 Pro Controller** and the **NSO
 GameCube Controller** to a PC over Bluetooth LE and use them as virtual **Xbox
 360 controllers**, with an optional **CemuHook/DSU** motion server for emulators.
+**PlayStation 5 DualSense** controllers are also supported on Windows over USB
+or Bluetooth.
 
 It is a single static binary with no Python runtime. It also runs on Linux
 (uinput) as well as Windows (ViGEmBus), and the DSU server works on macOS too.
@@ -81,6 +83,9 @@ games don't see an Xbox controller.
 
 Hide the physical controller from games with HidHide if you see doubled input.
 
+**Windows SmartScreen.** Until releases are Authenticode-signed, SmartScreen
+shows "Windows protected your PC". Click *More info* → *Run anyway*.
+
 **Windows Defender false positive.** The executables are not code-signed yet,
 and Defender's machine-learning heuristics may flag a build of `pad2go.exe`
 as `Trojan:Win32/Bearfoos.A!ml` and quarantine it, sometimes right after
@@ -140,6 +145,9 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 | `gc_trigger_mode` | `Hair Trigger`, `100% at Bump`, `100% at Max` |
 | `joystick_deadzone_percent` | per family: `joycon`, `pro_controller`, `nso_gamecube_controller` |
 | `vibration_strength_xbox` | 0–10 (5 = 100%) |
+| `dualsense_remaps` | map physical DualSense buttons to Xbox positional buttons |
+| `dualsense_lighting`, `dualsense_color`, `dualsense_brightness`, `dualsense_player_led` | DualSense light bar and player LEDs |
+| `dualsense_trigger_left`, `dualsense_trigger_right` | DualSense adaptive trigger presets |
 | `gyro_passthrough_mode` | `Cemuhook` enables the DSU server (`cemuhook_host`, `cemuhook_port`) |
 | `home_mapping`, `capt_mapping`, `c_mapping`, `gl_mapping`, `gr_mapping`, `sll/srl/slr/srr_mapping` | `Default`, `None`, or a Switch button name |
 
@@ -147,6 +155,8 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 
 | Feature | Status |
 | --- | --- |
+| PlayStation 5 DualSense input over USB/Bluetooth HID (Windows) | ✅ |
+| DualSense adaptive triggers, light bar and player LEDs | ✅ |
 | BLE discovery, pairing/bonding, reconnect-by-button | ✅ |
 | SW2 init sequence, input format 0x30, feature enable | ✅ |
 | Factory/user stick calibration, radial deadzones | ✅ |
@@ -159,8 +169,8 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 | CemuHook/DSU motion server | ✅ |
 | Extra-button remaps to controller buttons | ✅ |
 | Keyboard/mouse/media remaps, gyro mouse, IR mouse | ❌ |
-| PS4/PS5 (DualSense) and Switch 1/2 emulation (WinUHid, USBIP) | ❌ |
-| Adaptive triggers, audio haptics, Xbox impulse triggers | ❌ |
+| PS4 controller input and Switch 1/2 emulation (WinUHid, USBIP) | ❌ |
+| DualSense audio haptics and Xbox impulse triggers | ❌ |
 | ESP32-S3 bridge, wired USB | ❌ |
 | Profiles, power saving, auto-disconnect, GUI/tray | ❌ |
 
