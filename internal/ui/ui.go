@@ -296,6 +296,7 @@ type inputSample struct {
 	MotionCalibrated bool                     `json:"motionCalibrated"`
 	Buttons          uint16                   `json:"buttons"`
 	Pressed          []string                 `json:"pressed"` // physical buttons, canonical names
+	Mapped           []string                 `json:"mapped"`  // virtual output buttons after remaps
 	PhysicalKind     uint8                    `json:"physicalKind"`
 	PLX              float64                  `json:"plx"`
 	PLY              float64                  `json:"ply"`
@@ -346,7 +347,7 @@ func (s *Server) input(w http.ResponseWriter, r *http.Request) {
 			}
 			x := latest.Xbox
 			if send("input", inputSample{
-				Buttons: x.Buttons, Pressed: protocol.ButtonNames(latest.Pressed), PhysicalKind: uint8(latest.Kind), PLX: latest.Physical.Left.X, PLY: latest.Physical.Left.Y, PRX: latest.Physical.Right.X, PRY: latest.Physical.Right.Y, LX: axis(x.LX), LY: axis(x.LY), RX: axis(x.RX), RY: axis(x.RY),
+				Buttons: x.Buttons, Pressed: protocol.ButtonNames(latest.Pressed), Mapped: latest.Mapped, PhysicalKind: uint8(latest.Kind), PLX: latest.Physical.Left.X, PLY: latest.Physical.Left.Y, PRX: latest.Physical.Right.X, PRY: latest.Physical.Right.Y, LX: axis(x.LX), LY: axis(x.LY), RX: axis(x.RX), RY: axis(x.RY),
 				LT: x.LeftTrigger, RT: x.RightTrigger, PLT: latest.Physical.LeftTrigger, PRT: latest.Physical.RightTrigger, Analog: latest.AnalogTriggers, Gyro: latest.Gyro, Touch: latest.Physical.Touch, MotionCalibrated: latest.Physical.DualSenseMotionCalibrated,
 			}) != nil {
 				return

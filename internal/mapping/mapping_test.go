@@ -71,6 +71,30 @@ func TestGameCube(t *testing.T) {
 	}
 }
 
+func TestXboxStateDigitalTriggerWinsOverAnalog(t *testing.T) {
+	in := p.Input{Buttons: p.BtnZL | p.BtnZR, AnalogTriggers: true, LeftTrigger: 40, RightTrigger: 90}
+	x := XboxReport(in, false, false)
+	if x.LeftTrigger != 255 || x.RightTrigger != 255 {
+		t.Fatalf("triggers %d/%d, want 255/255", x.LeftTrigger, x.RightTrigger)
+	}
+	if x.Buttons != 0 {
+		t.Fatalf("buttons %04x", x.Buttons)
+	}
+}
+
+func TestXboxStateLayouts(t *testing.T) {
+	in := p.Input{Buttons: p.BtnB | p.BtnX}
+	if x := XboxReport(in, false, false); x.Buttons != XBA|XBY {
+		t.Fatalf("positional %04x", x.Buttons)
+	}
+	if x := XboxReport(in, true, false); x.Buttons != XBB|XBX {
+		t.Fatalf("by label %04x", x.Buttons)
+	}
+	if x := XboxReport(p.Input{Buttons: p.BtnB}, false, true); x.Buttons != XBX {
+		t.Fatalf("gamecube %04x", x.Buttons)
+	}
+}
+
 func TestLeftJoyConVertical(t *testing.T) {
 	pad := single(t, "Xbox", p.KindJoyConLeft, vertical, RemapSettings{})
 	f := update(t, pad, "c", p.Input{

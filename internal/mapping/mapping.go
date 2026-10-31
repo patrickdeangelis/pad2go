@@ -435,18 +435,26 @@ func faceTable(byLabel, gameCube bool) [][2]uint32 {
 	}
 }
 
+// XboxReport translates a protocol input into an Xbox 360 report. byLabel
+// keeps the printed labels (Switch layout) instead of mapping by position;
+// gameCube uses the GameCube diamond. A digital ZL/ZR bit always presses the
+// corresponding trigger fully, even when the source also reports analog
+// trigger values: this is what makes a remap onto ZL/ZR work for a DualSense.
+func XboxReport(in protocol.Input, byLabel, gameCube bool) XboxState {
+	return toXbox(in, byLabel, gameCube)
+}
+
 func toXbox(s protocol.Input, byLabel, gameCube bool) XboxState {
 	var out XboxState
 	out.Buttons = uint16(translate(s.Buttons, faceTable(byLabel, gameCube)) | translate(s.Buttons, commonButtons))
 	if s.AnalogTriggers {
 		out.LeftTrigger, out.RightTrigger = s.LeftTrigger, s.RightTrigger
-	} else {
-		if s.Buttons&protocol.BtnZL != 0 {
-			out.LeftTrigger = 255
-		}
-		if s.Buttons&protocol.BtnZR != 0 {
-			out.RightTrigger = 255
-		}
+	}
+	if s.Buttons&protocol.BtnZL != 0 {
+		out.LeftTrigger = 255
+	}
+	if s.Buttons&protocol.BtnZR != 0 {
+		out.RightTrigger = 255
 	}
 	out.LX, out.LY = axisToInt16(s.Left.X), axisToInt16(s.Left.Y)
 	out.RX, out.RY = axisToInt16(s.Right.X), axisToInt16(s.Right.Y)

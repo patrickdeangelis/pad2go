@@ -55,6 +55,7 @@ type App struct {
 	outputMu        sync.Mutex
 	defaultOutput   string
 	outputOverrides map[string]string
+	outputRemaps    map[string]map[string]string
 
 	mu             sync.Mutex
 	slots          []*slot
@@ -82,10 +83,15 @@ func New(cfg *config.Config, backend virtualpad.Backend, dsuServer *dsu.Server, 
 	if overrides == nil {
 		overrides = map[string]string{}
 	}
+	outputRemaps := cfg.OutputRemaps
+	if outputRemaps == nil {
+		outputRemaps = map[string]map[string]string{}
+	}
 	return &App{
 		cfg: cfg, log: log, backend: backend, dsu: dsuServer, rules: rules,
 		defaultOutput: normalizeOutput(cfg.Output), outputOverrides: overrides,
-		slots: make([]*slot, cfg.MaxControllers), dualSenseSlots: make(map[string]int),
+		outputRemaps: cloneRemaps(outputRemaps),
+		slots:        make([]*slot, cfg.MaxControllers), dualSenseSlots: make(map[string]int),
 	}
 }
 
@@ -533,6 +539,7 @@ func (s *slot) onInput(m *member, in protocol.Input) {
 		dsuID = s.members[0].dev
 	}
 	if ok {
+		f = s.applyOutputRemaps(f, m.dev.Kind())
 		var pressed uint32
 		for _, x := range s.members {
 			pressed |= x.pressed
@@ -548,7 +555,10 @@ func (s *slot) onInput(m *member, in protocol.Input) {
 		}
 		for w := range s.watchers {
 			select {
-			case w <- Sample{Xbox: f.Xbox, Pressed: pressed, Physical: in, Kind: m.dev.Kind(), Gyro: f.Motion.Gyro, AnalogTriggers: in.AnalogTriggers}:
+			case w <- Sample{
+				Xbox: f.Xbox, Pressed: pressed, Mapped: protocol.ButtonNames(f.Player.Buttons),
+				Physical: in, Kind: m.dev.Kind(), Gyro: f.Motion.Gyro, AnalogTriggers: in.AnalogTriggers,
+			}:
 			default: // slow watcher: drop the sample
 			}
 		}
@@ -806,7 +816,10 @@ type Sample struct {
 	Kind     protocol.Kind
 	// Pressed is the physical buttons held across the slot's controllers
 	// (protocol.Btn* bits), before remapping.
-	Pressed        uint32
+	Pressed uint32
+	// Mapped is the virtual output's buttons after the output remaps, as
+	// canonical protocol names.
+	Mapped         []string
 	Gyro           [3]float32 // deg/s of the reporting controller
 	AnalogTriggers bool
 }

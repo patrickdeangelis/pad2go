@@ -12,7 +12,7 @@ Terms used across the code and docs. Keep code names aligned with these.
 
 **Settle gate**: after connecting, a controller drops input until the first neutral report (or 1 s), so a held wake button doesn't fire actions.
 
-**Player slot**: one numbered virtual Xbox 360 controller exposed to the OS, with its player LEDs.
+**Player slot**: one numbered virtual controller exposed to the OS (Xbox 360, DualSense, Switch Pro or motion-only), with its player LEDs.
 
 **Player pad**: the state behind one player slot (`mapping.PlayerPad`): which controllers feed it and how their Inputs become one Xbox report and per-controller motion. Remap, hold-mode rotation, pair merging and layout are applied here, in that order.
 
@@ -21,6 +21,8 @@ Terms used across the code and docs. Keep code names aligned with these.
 **Hold mode**: how a *single* Joy-Con is held: Vertical (acts as the right half of a pad) or Horizontal (sideways, stick rotated, SL/SR become ZL/ZR). Joy-Cons in a pair are never rotated.
 
 **Remap**: redirecting an extra button (Home, Capture, C, GL/GR, SL/SR) to another Switch button or to nothing. Remapped buttons bypass hold-mode rotation.
+
+**Output remap**: a virtual-button remap applied after the player pad mapping and before the output encoder. A `global` table applies to every output; the `xbox`, `dualsense` and `switch` tables override individual sources. Source and target are protocol button names, and the Xbox report is rebuilt from the remapped input.
 
 **Layout**: how Switch face buttons map to Xbox ones: positional (`abxy_mode: Xbox`) or by label (`abxy_mode: Switch`).
 

@@ -249,6 +249,7 @@ func (s *Service) runOnce(ctx context.Context, cfg *config.Config) {
 	a := app.New(cfg, virtualpad.Null{}, server, s.log)
 	a.SetPool(pool)
 	a.SetOutputs(cfg.Output, cfg.OutputOverrides)
+	a.SetOutputRemaps(cfg.OutputRemaps)
 	a.OnChange(s.appChanged)
 	defer a.Close()
 	s.mu.Lock()

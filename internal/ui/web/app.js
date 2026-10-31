@@ -8,7 +8,7 @@
   const all = query => [...document.querySelectorAll(query)];
   const xboxPadHTML = document.getElementById('test-output-controller')?.innerHTML || '';
   const prefsKey = 'pad2go-ui-v2';
-  const ui = { view: 'controllers', detail: null, testing: null, discoveryOpen: false, discoveryKind: null, notifications: true };
+  const ui = { view: 'controllers', detail: null, testing: null, discoveryOpen: false, discoveryKind: null, notifications: true, remapScope: 'global' };
   let snap = null;
   let draft = null;
   let inputStream = null;
@@ -203,6 +203,7 @@
   }
 
   function renderSettings() {
+    if (!draft.outputRemaps) draft.outputRemaps = {};
     all('[data-config]').forEach(node => {
       const value = draft[node.dataset.config];
       if (node.type === 'checkbox') node.checked = value;
@@ -211,6 +212,16 @@
     all('[data-deadzone]').forEach(node => { if (document.activeElement !== node) node.value = draft.deadzones[node.dataset.deadzone]; });
     all('[data-remap]').forEach(node => { node.value = draft.remaps[node.dataset.remap] || 'Default'; });
     all('[data-ds-remap]').forEach(node => { node.value = draft.dualSenseRemaps?.[node.dataset.dsRemap] || 'Default'; });
+    const scopeRemaps = draft.outputRemaps[ui.remapScope] || {};
+    all('[data-output-remap]').forEach(node => {
+      const source = node.dataset.outputRemap;
+      if (document.activeElement !== node) node.value = scopeRemaps[source] || 'Default';
+      const inherited = ui.remapScope !== 'global' && (!scopeRemaps[source] || scopeRemaps[source] === 'Default')
+        ? draft.outputRemaps.global?.[source] : null;
+      const hint = node.closest('.remap-field')?.querySelector('[data-remap-inherit]');
+      if (hint) hint.textContent = inherited ? `Global: ${outputRemapLabels[inherited] || inherited}` : '';
+    });
+    all('[data-remap-scope]').forEach(button => button.setAttribute('aria-checked', button.dataset.remapScope === ui.remapScope));
     all('[data-layout]').forEach(button => button.setAttribute('aria-checked', button.dataset.layout === draft.layout));
     el('layout-hint').textContent = draft.layout === 'Switch' ? 'Pela letra: A do Switch → A do Xbox' : 'Pela posição: B do Switch → A do Xbox';
     el('vibration-value').value = `${draft.vibration * 20}%`;
@@ -289,8 +300,8 @@
       let pressed = Boolean(sample.buttons & (map[key] || 0));
       if (key === 'L2' || key === 'ZL') pressed = sample.lt > 0;
       if (key === 'R2' || key === 'ZR') pressed = sample.rt > 0;
-      if (key === 'CAPTURE') pressed = (sample.pressed || []).includes('CAPT');
-      if (key === 'MUTE') pressed = (sample.pressed || []).includes('MUTE');
+      if (key === 'CAPTURE') pressed = (sample.mapped || sample.pressed || []).includes('CAPT');
+      if (key === 'MUTE') pressed = (sample.mapped || sample.pressed || []).includes('MUTE');
       node.classList.toggle('is-pressed', pressed);
     });
   }
@@ -557,6 +568,26 @@
   const remapLabels = { Default: 'Padrão', None: 'Sem ação', MINUS: '−', PLUS: '+', L_STK: 'Clique analógico L', R_STK: 'Clique analógico R', UP: 'Cima', DOWN: 'Baixo', LEFT: 'Esquerda', RIGHT: 'Direita', HOME: 'Home', CAPT: 'Captura' };
   const remapValues = ['Default', 'None', 'A', 'B', 'X', 'Y', 'L', 'R', 'ZL', 'ZR', 'MINUS', 'PLUS', 'L_STK', 'R_STK', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'HOME', 'CAPT'];
   el('remaps').innerHTML = [['home', 'Home'], ['capt', 'Captura'], ['c', 'C (GameCube)'], ['gl', 'GL'], ['gr', 'GR'], ['sll', 'SL do Joy-Con L'], ['srl', 'SR do Joy-Con L'], ['slr', 'SL do Joy-Con R'], ['srr', 'SR do Joy-Con R']].map(([key, name]) => `<div class="row"><div class="row-label"><label for="remap-${key}">${name}</label></div><div class="row-control"><select id="remap-${key}" data-remap="${key}">${remapValues.map(value => `<option value="${value}">${remapLabels[value] || value}</option>`).join('')}</select></div></div>`).join('');
+
+  const outputRemapLabels = {
+    Default: 'Padrão', None: 'Sem ação',
+    A: 'A', B: 'B', X: 'X', Y: 'Y',
+    UP: 'Direcional ↑', DOWN: 'Direcional ↓', LEFT: 'Direcional ←', RIGHT: 'Direcional →',
+    L: 'L (bumper)', R: 'R (bumper)', ZL: 'ZL (gatilho)', ZR: 'ZR (gatilho)',
+    MINUS: '− / Create', PLUS: '+ / Options', HOME: 'Home / PS', CAPT: 'Captura', C: 'C (Chat)',
+    MUTE: 'Mudo', L_STK: 'Clique L3', R_STK: 'Clique R3',
+    SL_L: 'SL (Joy-Con L)', SR_L: 'SR (Joy-Con L)', SL_R: 'SL (Joy-Con R)', SR_R: 'SR (Joy-Con R)',
+    GL: 'GL', GR: 'GR',
+    PS_L_Touch: 'Touch esquerdo', PS_R_Touch: 'Touch direito', PS_C_Click: 'Clique do touchpad',
+    GC_L_CLICK: 'Clique L (GameCube)', GC_R_CLICK: 'Clique R (GameCube)',
+  };
+  const outputRemapTargets = ['Default', 'None', 'A', 'B', 'X', 'Y', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'L', 'R', 'ZL', 'ZR', 'MINUS', 'PLUS', 'HOME', 'CAPT', 'C', 'MUTE', 'L_STK', 'R_STK', 'PS_C_Click', 'SL_L', 'SR_L', 'SL_R', 'SR_R', 'GL', 'GR'];
+  const outputRemapSources = ['A', 'B', 'X', 'Y', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'L', 'R', 'ZL', 'ZR', 'MINUS', 'PLUS', 'HOME', 'CAPT', 'C', 'MUTE', 'L_STK', 'R_STK', 'SL_L', 'SR_L', 'SL_R', 'SR_R', 'GL', 'GR', 'PS_L_Touch', 'PS_R_Touch', 'PS_C_Click', 'GC_L_CLICK', 'GC_R_CLICK'];
+  el('output-remaps').innerHTML = outputRemapSources.map(source => `
+    <div class="remap-field">
+      <span class="remap-source"><label for="out-remap-${source}">${escape(outputRemapLabels[source] || source)}</label><small data-remap-inherit="${source}"></small></span>
+      <select id="out-remap-${source}" data-output-remap="${source}">${outputRemapTargets.map(value => `<option value="${value}">${escape(outputRemapLabels[value] || value)}</option>`).join('')}</select>
+    </div>`).join('');
   const dsTargets = [['Default','Padrão'],['None','Sem ação'],['B','A'],['A','B'],['Y','X'],['X','Y'],['L','LB'],['R','RB'],['ZL','LT'],['ZR','RT'],['MINUS','View'],['PLUS','Menu'],['L_STK','Analógico esquerdo'],['R_STK','Analógico direito'],['UP','Direcional cima'],['DOWN','Direcional baixo'],['LEFT','Direcional esquerda'],['RIGHT','Direcional direita'],['HOME','Xbox']];
   el('dualsense-remaps').innerHTML = [['cross','Cruz'],['circle','Círculo'],['square','Quadrado'],['triangle','Triângulo'],['l1','L1'],['r1','R1'],['l2','L2'],['r2','R2'],['l3','L3'],['r3','R3'],['create','Criar'],['options','Opções'],['ps','PS'],['touch','Clique do touchpad'],['up','Direcional cima'],['down','Direcional baixo'],['left','Direcional esquerda'],['right','Direcional direita']].map(([key,name]) => `<div class="row"><div class="row-label"><label for="ds-remap-${key}">${name}</label></div><div class="row-control"><select id="ds-remap-${key}" data-ds-remap="${key}">${dsTargets.map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select></div></div>`).join('');
 
@@ -577,6 +608,11 @@
       try { await api(`/api/players/${player}/disconnect`, { method: 'POST' }); ui.detail = null; announce(`Jogador ${player} desconectado. Os demais mantêm seus números.`); } catch (error) { announce(`Não foi possível desconectar: ${error.message}`, true); }
     }
     else if (button.dataset.layout) { draft.layout = button.dataset.layout; render(); save(); }
+    else if (button.dataset.remapScope) { ui.remapScope = button.dataset.remapScope; renderSettings(); }
+    else if (button.id === 'reset-output-remaps') {
+      draft.outputRemaps = { ...(draft.outputRemaps || {}), [ui.remapScope]: {} };
+      renderSettings(); save();
+    }
     else if (button.id === 'rumble') {
       try { await api(`/api/players/${ui.testing}/rumble`, { method: 'POST' }); inputNote('Vibração enviada ao controle.'); } catch (error) { inputNote(`Não foi possível vibrar: ${error.message}`); }
     }
@@ -591,6 +627,16 @@
     if (node.id === 'output-default') { setDefaultOutput(node.value, false); return; }
     if (node.dataset.playerOutput) { setPlayerOutput(Number(node.dataset.playerOutput), node.value); return; }
     if (!draft) return;
+    if (node.hasAttribute('data-output-remap')) {
+      const source = node.dataset.outputRemap;
+      const scope = ui.remapScope;
+      const table = { ...(draft.outputRemaps?.[scope] || {}) };
+      if (node.value === 'Default') delete table[source];
+      else table[source] = node.value;
+      draft.outputRemaps = { ...(draft.outputRemaps || {}), [scope]: table };
+      save();
+      return;
+    }
     if (node.dataset.config && node.type !== 'range') {
       if (!validate(node)) return;
       const key = node.dataset.config;

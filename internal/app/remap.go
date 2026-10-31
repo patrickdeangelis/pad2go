@@ -1,0 +1,129 @@
+package app
+
+import (
+	"maps"
+
+	"github.com/patrickdeangelis/pad2go/internal/mapping"
+	"github.com/patrickdeangelis/pad2go/internal/protocol"
+	"github.com/patrickdeangelis/pad2go/internal/virtualpad"
+)
+
+// outputRemap moves one protocol button to another. dst 0 clears the source
+// button.
+type outputRemap struct {
+	src, dst uint32
+}
+
+// cloneRemaps copies a scope -> source -> target map so neither the saved
+// configuration nor the caller can mutate the running app's copy.
+func cloneRemaps(remaps map[string]map[string]string) map[string]map[string]string {
+	out := make(map[string]map[string]string, len(remaps))
+	for scope, entries := range remaps {
+		out[scope] = maps.Clone(entries)
+	}
+	return out
+}
+
+// compileOutputRemaps merges the global remaps with the selected output's
+// overrides. The per-output entry wins for the same source; "Default" leaves
+// the inherited mapping alone and "None" clears the button.
+func compileOutputRemaps(global, perOutput map[string]string) []outputRemap {
+	if len(global) == 0 && len(perOutput) == 0 {
+		return nil
+	}
+	final := make(map[uint32]uint32, len(global)+len(perOutput))
+	add := func(remaps map[string]string) {
+		for source, target := range remaps {
+			src, ok := protocol.ButtonsByName[source]
+			if !ok {
+				continue
+			}
+			switch target {
+			case "", "Default":
+				continue
+			case "None":
+				final[src] = 0
+			default:
+				dst, ok := protocol.ButtonsByName[target]
+				if !ok {
+					continue
+				}
+				final[src] = dst
+			}
+		}
+	}
+	add(global)
+	add(perOutput)
+	out := make([]outputRemap, 0, len(final))
+	for src, dst := range final {
+		out = append(out, outputRemap{src: src, dst: dst})
+	}
+	return out
+}
+
+// applyButtonRemaps moves sources onto their targets. Every decision uses the
+// original button set, so a target that is also a source does not chain. All
+// sources are cleared before any target is added, so a target mapped from one
+// button survives another source being disabled with "None".
+func applyButtonRemaps(buttons uint32, remaps []outputRemap) uint32 {
+	kept := buttons
+	for _, rm := range remaps {
+		kept &^= rm.src
+	}
+	for _, rm := range remaps {
+		if buttons&rm.src != 0 {
+			kept |= rm.dst
+		}
+	}
+	return kept
+}
+
+// SetOutputRemaps replaces the remap tables for the running app. The service
+// calls it when it rebuilds the runtime, so like the rest of the settings a
+// saved change takes effect after Restart.
+func (a *App) SetOutputRemaps(remaps map[string]map[string]string) {
+	clone := cloneRemaps(remaps)
+	a.outputMu.Lock()
+	a.outputRemaps = clone
+	a.outputMu.Unlock()
+}
+
+// outputRemapsFor returns the compiled remaps for one effective output.
+func (a *App) outputRemapsFor(output string) []outputRemap {
+	a.outputMu.Lock()
+	global := maps.Clone(a.outputRemaps["global"])
+	perOutput := maps.Clone(a.outputRemaps[output])
+	a.outputMu.Unlock()
+	return compileOutputRemaps(global, perOutput)
+}
+
+// applyOutputRemaps rewrites the frame's protocol buttons and rebuilds the
+// Xbox report from them, so every virtual output and the input test see the
+// same remapped result.
+func (s *slot) applyOutputRemaps(f mapping.Frame, kind protocol.Kind) mapping.Frame {
+	if s.outputKind == "" || s.outputKind == virtualpad.OutputNone {
+		return f
+	}
+	remaps := s.app.outputRemapsFor(s.outputKind)
+	if len(remaps) == 0 {
+		return f
+	}
+	remap := func(in protocol.Input) protocol.Input {
+		in.Buttons = applyButtonRemaps(in.Buttons, remaps)
+		// A button remapped onto a trigger must also drive its analog value for
+		// outputs that carry one (the DualSense report).
+		if in.Buttons&protocol.BtnZL != 0 {
+			in.LeftTrigger = 255
+		}
+		if in.Buttons&protocol.BtnZR != 0 {
+			in.RightTrigger = 255
+		}
+		return in
+	}
+	f.Controller = remap(f.Controller)
+	f.Player = remap(f.Player)
+	byLabel := s.app.cfg.ABXYMode == "Switch" && kind != protocol.KindDualSense
+	gameCube := !f.Pair && kind == protocol.KindGameCube
+	f.Xbox = mapping.XboxReport(f.Player, byLabel, gameCube)
+	return f
+}

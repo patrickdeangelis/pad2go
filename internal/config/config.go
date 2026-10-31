@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/patrickdeangelis/pad2go/internal/protocol"
 	"gopkg.in/yaml.v3"
 )
 
@@ -28,6 +29,10 @@ type Config struct {
 	// OutputOverrides maps a controller address (MAC) to a per-player output:
 	// auto, xbox, dualsense, switch or none. The default applies to new players.
 	OutputOverrides map[string]string `yaml:"output_overrides,omitempty"`
+	// OutputRemaps holds virtual-button remaps. "global" applies to every
+	// output; "xbox", "dualsense" and "switch" override it per output. Source
+	// and target names are the protocol button names.
+	OutputRemaps map[string]map[string]string `yaml:"output_remaps,omitempty"`
 	// HostMAC is this computer's Bluetooth address, used to pair controllers so
 	// they reconnect on a button press. Detected automatically where possible.
 	HostMAC string `yaml:"host_mac"`
@@ -116,6 +121,7 @@ func Default() *Config {
 	return &Config{
 		Output:          "auto",
 		OutputOverrides: map[string]string{},
+		OutputRemaps:    map[string]map[string]string{},
 		DualSenseColor:  "#0080ff", DualSenseBrightness: 100, DualSensePlayerLED: true, DualSenseTriggerLeft: "off", DualSenseTriggerRight: "off",
 		MaxControllers:       4,
 		ABXYMode:             "Xbox",
@@ -212,6 +218,25 @@ func (c *Config) Validate() error {
 		case "auto", "xbox", "dualsense", "switch", "none":
 		default:
 			return fmt.Errorf("output_overrides[%s]: unknown output %q (want auto, xbox, dualsense, switch or none)", addr, output)
+		}
+	}
+	for scope, remaps := range c.OutputRemaps {
+		switch scope {
+		case "global", "xbox", "dualsense", "switch":
+		default:
+			return fmt.Errorf("output_remaps: unknown scope %q (want global, xbox, dualsense or switch)", scope)
+		}
+		for source, target := range remaps {
+			if _, ok := protocol.ButtonsByName[source]; !ok {
+				return fmt.Errorf("output_remaps[%s]: unknown source button %q", scope, source)
+			}
+			switch target {
+			case "", "Default", "None":
+				continue
+			}
+			if _, ok := protocol.ButtonsByName[target]; !ok {
+				return fmt.Errorf("output_remaps[%s][%s]: unknown target button %q", scope, source, target)
+			}
 		}
 	}
 	if c.ABXYMode != "Xbox" && c.ABXYMode != "Switch" {
@@ -313,6 +338,14 @@ const Sample = `# pad2go configuration.
 output: auto
 # Per-player output overrides by controller address (MAC): auto | xbox | dualsense | switch | none
 output_overrides: {}
+# Virtual button remaps by output. "global" applies to every output and the
+# per-output maps override it. Source/target are protocol button names; None
+# clears a button.
+# output_remaps:
+#   global:
+#     A: B
+#   xbox:
+#     CAPT: HOME
 
 # This PC's Bluetooth MAC. Needed to pair controllers so they reconnect with a
 # button press. Leave empty to auto-detect (Windows/Linux).

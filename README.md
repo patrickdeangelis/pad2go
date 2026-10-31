@@ -144,6 +144,7 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 | --- | --- |
 | `output` | `auto`, `vigem`, `uinput`, `xbox`, `dualsense`, `switch` or `none` |
 | `output_overrides` | per-controller output by MAC: `auto`, `xbox`, `dualsense`, `switch` or `none` |
+| `output_remaps` | virtual button remaps by scope: `global` plus `xbox`/`dualsense`/`switch` overrides, in protocol button names (`None` clears a button) |
 | `host_mac` | this PC's Bluetooth MAC; auto-detected on Windows/Linux |
 | `abxy_mode` | `Xbox` (positional: Switch B → Xbox A) or `Switch` (by label) |
 | `combine_joycons` | merge a left + right Joy-Con into one pad |
@@ -163,6 +164,8 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 `output: switch` creates a virtual Switch Pro Controller with both sticks, the full button set, rumble and gyro/accelerometer. Switch emulators discover it through SDL2's HIDAPI Switch driver; select the **Pro Controller** entry in the emulator. It uses the same WinUHid/`/dev/uhid` backend as the DualSense output. `auto` does not choose it, because a Switch pad is only wanted by emulators that understand the Switch protocol.
 
 On the main screen, **Saída padrão** selects the output for new players, and each player card has its own output selector. `Automático` sends a physical DualSense to a virtual DualSense and Nintendo controllers to Xbox 360. A per-player choice is saved by MAC in `output_overrides`; changing it recreates only that player's pad.
+
+Settings → **Mapeamento por saída** remaps virtual buttons by output. The built-in positional mapping stays the default; a `global` table applies everywhere and each output can override individual buttons. Targets use the protocol button names (`A`, `B`, `ZL`, `HOME`, `MUTE`, `PS_C_Click`, ...), `Padrão` keeps the built-in mapping and `Sem ação` clears the button. Remaps are applied before the output encoder, and the Xbox report is rebuilt from the remapped input.
 
 ## Controller and output support
 
