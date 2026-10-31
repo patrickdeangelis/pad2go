@@ -177,7 +177,7 @@
       <div id="test-controller" class="test-controller"></div>
       <p id="test-mapping" class="test-mapping"></p>
     </section>
-    <div class="output-heading">Saída virtual · Xbox 360</div>
+    <div class="output-heading" id="test-output-heading">Saída virtual</div>
     <div class="input-layout">
       <div class="input-pad" role="img" aria-label="Visualização das entradas recebidas">
         <div class="input-triggers"><span id="pad-l" class="pad-key wide">LB</span><span class="input-center"><span id="pad-back" class="pad-key wide" title="Back (− e Captura)">Back</span><span id="pad-guide" class="pad-key" title="Guide (Home)">⌂</span><span id="pad-start" class="pad-key wide" title="Start (+)">Start</span></span><span id="pad-r" class="pad-key wide">RB</span></div>
@@ -190,7 +190,7 @@
         <div class="row"><div class="row-label"><span>Gatilho RT</span></div><div class="row-control meter"><progress id="trigger-r" max="100" value="0"></progress><output id="trigger-r-value" class="value">0%</output></div></div>
         <div class="row"><div class="row-label"><span>Giroscópio (°/s)</span></div><output id="gyro-values" class="value">0,0 · 0,0 · 0,0</output></div>
         <div class="row" id="touch-test" hidden><div class="row-label"><span>Touchpad</span><small>Até dois contatos simultâneos</small><output id="touch-values" class="value">Sem contato</output></div><svg class="touch-surface" viewBox="0 0 1920 1080" role="img" aria-label="Posição dos contatos no touchpad"><rect width="1920" height="1080" rx="100"/><circle id="touch-point-0" r="75" hidden/><circle id="touch-point-1" r="75" hidden/></svg></div>
-        <div class="row"><div class="row-label"><span>Botões no controle</span><small>O que você aperta, antes de virar Xbox</small></div><output id="pressed-values" class="value">—</output></div>
+        <div class="row"><div class="row-label"><span>Botões no controle</span><small>O que você aperta, antes de virar o controle virtual</small></div><output id="pressed-values" class="value">—</output></div>
       </div>
     </div>
     <footer class="sheet-footer"><span id="input-state" class="secondary" role="status">Aguardando entradas.</span><button id="rumble" type="button" class="push">Vibrar</button><button id="close-test" type="button" class="push primary">Concluído</button></footer>

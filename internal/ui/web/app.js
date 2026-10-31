@@ -337,13 +337,49 @@
     el('test-shoulders').innerHTML = testShoulders(kinds);
     el('test-controller').innerHTML = await controllerTestArt(slot?.members || [], horizontal);
     el('test-controller').className = `test-controller ${kinds.length === 2 ? 'joy-pair' : kinds[0] || ''}${horizontal ? ' joy-horizontal' : ''}`;
-    el('test-mapping').textContent = mappingText(slot?.members || []);
+    el('test-mapping').textContent = mappingText(slot);
+    renderVirtualOutput(slot);
     inputStream = new EventSource(`/api/players/${player}/input`);
     inputStream.addEventListener('input', event => showInput(JSON.parse(event.data)));
     inputStream.onerror = () => { if (ui.testing === player) el('input-state').textContent = 'Sem entradas: o controle desconectou?'; };
     el('test-dialog').showModal();
   }
-  function mappingText(members) {
+  function renderVirtualOutput(slot) {
+    const labels = {
+      xbox: { heading: 'Xbox 360', l: 'LB', r: 'RB', back: 'Back', guide: '\u2302', start: 'Start', y: 'Y', x: 'X', b: 'B', a: 'A' },
+      dualsense: { heading: 'DualSense', l: 'L1', r: 'R1', back: 'Create', guide: 'PS', start: 'Options', y: 'Triangle', x: 'Square', b: 'Circle', a: 'Cross' },
+      switch: { heading: 'Switch Pro', l: 'L', r: 'R', back: '-', guide: 'Home', start: '+', y: 'X', x: 'Y', b: 'A', a: 'B' },
+      none: { heading: 'Sem saída virtual', l: '', r: '', back: '', guide: '', start: '', y: '', x: '', b: '', a: '' },
+    };
+    const effective = slot?.outputKind || 'none';
+    const requested = slot?.outputOverrideKind || effective;
+    const set = labels[requested] || labels.none;
+    const unavailable = requested !== effective && effective === 'none' ? ' (indisponível)' : '';
+    el('test-output-heading').textContent = `Saída virtual · ${set.heading}${unavailable}`;
+    el('test-output-heading').dataset.kind = requested;
+    el('pad-l').textContent = set.l;
+    el('pad-r').textContent = set.r;
+    el('pad-back').textContent = set.back;
+    el('pad-guide').textContent = set.guide;
+    el('pad-start').textContent = set.start;
+    el('pad-y').textContent = set.y;
+    el('pad-x').textContent = set.x;
+    el('pad-b').textContent = set.b;
+    el('pad-a').textContent = set.a;
+  }
+
+  function mappingText(slot) {
+    const members = slot?.members || [];
+    const outputKind = slot?.outputOverrideKind || slot?.outputKind || 'none';
+    if (outputKind === 'dualsense') {
+      return 'Posicional: B/A/Y/X → Cross/Circle/Square/Triangle · L/R → L1/R1 · ZL/ZR → L2/R2 · touch e movimento são repassados.';
+    }
+    if (outputKind === 'switch') {
+      return 'Posicional: B/A/Y/X → B/A/Y/X · L/R → L/R · ZL/ZR → ZL/ZR · movimento via IMU.';
+    }
+    if (outputKind === 'none') {
+      return 'Sem saída virtual: os botões vão apenas para o DSU.';
+    }
     const kinds = members.map(member => member.kind);
     const kind = kinds.length === 2 ? 'joy-pair' : kinds[0] || '';
     const byLabel = (draft?.layout || snap.config.layout) === 'Switch';
