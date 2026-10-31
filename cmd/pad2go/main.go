@@ -139,13 +139,14 @@ func checkOutput(cfgPath string) error {
 	if err != nil {
 		return err
 	}
-	if cfg.Output == "dualsense" {
-		backend, err := virtualpad.Open("dualsense")
+	switch cfg.Output {
+	case "dualsense", "switch":
+		backend, err := virtualpad.Open(cfg.Output)
 		if err != nil {
 			return err
 		}
 		defer backend.Close()
-		fmt.Println("DualSense virtual: ready")
+		fmt.Printf("%s: ready\n", virtualpad.Name(cfg.Output))
 		return nil
 	}
 	for _, c := range virtualpad.Diagnose() {
