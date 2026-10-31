@@ -155,10 +155,12 @@ func checkDefaultOutput(pool *virtualpad.Pool, kind string) error {
 	case virtualpad.OutputSwitch:
 		return pool.Available(virtualpad.OutputSwitch)
 	default:
-		if pool.Available(virtualpad.OutputXbox) == nil || pool.Available(virtualpad.OutputDualSense) == nil {
+		xboxErr := pool.Available(virtualpad.OutputXbox)
+		dsErr := pool.Available(virtualpad.OutputDualSense)
+		if xboxErr == nil || dsErr == nil {
 			return nil
 		}
-		return fmt.Errorf("no virtual output available (WinUHid or ViGEmBus/uinput required)")
+		return fmt.Errorf("no virtual output available: Xbox 360: %v; DualSense/Switch: %v", xboxErr, dsErr)
 	}
 }
 
