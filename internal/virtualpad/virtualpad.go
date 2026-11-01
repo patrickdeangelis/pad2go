@@ -4,11 +4,15 @@
 package virtualpad
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/patrickdeangelis/pad2go/internal/mapping"
 )
+
+var ErrDriverMissing = errors.New("virtual output driver is missing")
+var ErrNoCgo = errors.New("this build has no cgo ViGEm client")
 
 // RumbleFunc receives force-feedback from games: large (low-frequency) and
 // small (high-frequency) motor strengths, 0-255.

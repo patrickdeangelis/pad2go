@@ -69,8 +69,9 @@ type Service struct {
 
 // Fault is a condition that stops controllers from working.
 type Fault struct {
-	Kind    string `json:"kind"` // "bluetooth", "output" or "config"
-	Message string `json:"message"`
+	Kind    string   `json:"kind"` // "bluetooth", "output" or "config"
+	Message string   `json:"message"`
+	Reasons []string `json:"reasons,omitempty"`
 }
 
 // Discovery is the connection progress shown in the UI.
@@ -563,13 +564,21 @@ type OutputView struct {
 
 // PlayerView is one occupied player slot.
 type PlayerView struct {
-	Player             int          `json:"player"`
-	Name               string       `json:"name"`
-	Output             string       `json:"output"`
-	OutputKind         string       `json:"outputKind"`
-	OutputOverride     string       `json:"outputOverride,omitempty"`
-	OutputOverrideKind string       `json:"outputOverrideKind,omitempty"`
-	Members            []MemberView `json:"members"`
+	Player             int           `json:"player"`
+	Name               string        `json:"name"`
+	Output             string        `json:"output"`
+	OutputKind         string        `json:"outputKind"`
+	OutputOverride     string        `json:"outputOverride,omitempty"`
+	OutputOverrideKind string        `json:"outputOverrideKind,omitempty"`
+	Members            []MemberView  `json:"members"`
+	OutputIssue        string        `json:"outputIssue"`
+	DefaultOutput      string        `json:"defaultOutput"`
+	ActiveRemaps       []ActiveRemap `json:"activeRemaps,omitempty"`
+}
+
+type ActiveRemap struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
 }
 
 // MemberView is one controller.
