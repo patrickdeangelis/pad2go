@@ -9,6 +9,7 @@
   <script src="platform.js"></script>
   <link rel="stylesheet" href="styles.css">
   <script src="app.js" defer></script>
+  <script type="module" src="mapping.js"></script>
 </head>
 <body>
   <div id="pad2go" class="app">
@@ -17,6 +18,7 @@
       <div class="sidebar-items" role="tablist" aria-orientation="vertical" aria-label="Seções">
         <button id="tab-controllers" type="button" role="tab" aria-selected="true" aria-controls="panel-controllers" data-view="controllers"><span data-icon="gamepad"></span><span>Controles</span><span id="player-badge" class="badge" hidden></span></button>
         <button id="tab-motion" type="button" role="tab" aria-selected="false" aria-controls="panel-motion" data-view="motion" tabindex="-1"><span data-icon="orbit"></span><span>Movimento</span></button>
+        <button id="tab-mapping" type="button" role="tab" aria-selected="false" aria-controls="panel-mapping" data-view="mapping" tabindex="-1"><span data-icon="sliders"></span><span>Mapeamento</span></button>
         <button id="tab-settings" type="button" role="tab" aria-selected="false" aria-controls="panel-settings" data-view="settings" tabindex="-1"><span data-icon="gear"></span><span>Ajustes</span></button>
       </div>
       <div class="sidebar-footer" id="version"></div>
@@ -111,6 +113,10 @@
           <p class="group-footer">Use o mesmo endereço e porta nas configurações de movimento do emulador. Alterações valem após reiniciar as conexões.</p>
         </section>
 
+        <section id="panel-mapping" role="tabpanel" aria-labelledby="tab-mapping" hidden>
+          <div id="mapping-root"></div>
+        </section>
+
         <section id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
           <header class="page-header"><p>Salvos automaticamente. Valem após reiniciar as conexões.</p></header>
 
@@ -129,26 +135,6 @@
             <div class="row"><div class="row-label"><label for="trigger">Gatilhos · GameCube</label></div><div class="row-control"><select id="trigger" data-config="trigger"><option value="100% at Bump">Máximo no clique</option><option value="100% at Max">Máximo no fim do curso</option><option value="Hair Trigger">Toque leve</option></select></div></div>
           </div>
 
-          <h2 class="group-title">Botões extras</h2>
-          <div id="remaps" class="group"></div>
-          <p class="group-footer">Redirecione botões extras para outro botão do controle.</p>
-
-          <h2 class="group-title">Mapeamento por saída</h2>
-          <div class="remap-toolbar">
-            <div id="remap-scope" class="segmented" role="radiogroup" aria-label="Saída do mapeamento">
-              <button type="button" role="radio" data-remap-scope="global">Global</button>
-              <button type="button" role="radio" data-remap-scope="xbox">Xbox 360</button>
-              <button type="button" role="radio" data-remap-scope="dualsense">DualSense</button>
-              <button type="button" role="radio" data-remap-scope="switch">Switch Pro</button>
-            </div>
-            <button id="reset-output-remaps" type="button" class="push small">Restaurar padrão</button>
-          </div>
-          <div id="output-remaps" class="group remap-grid"></div>
-          <p class="group-footer">O mapa global vale para todas as saídas; cada saída pode sobrescrever os botões que precisar. “Padrão” usa o mapa embutido (ou o global), “Sem ação” desliga o botão e alvos sem equivalente na saída são ignorados. A/B/X/Y seguem a posição do layout Switch (B é o botão de baixo). As alterações valem após reiniciar as conexões.</p>
-
-          <h2 class="group-title">Botões do DualSense</h2>
-          <div id="dualsense-remaps" class="group"></div>
-          <p class="group-footer">Escolha a ação no controle Xbox virtual. L2/R2 mapeados para botões acionam a partir de 50% do curso. As alterações entram em vigor ao reiniciar.</p>
           <h2 class="group-title">Iluminação do DualSense</h2>
           <div class="group">
             <label class="row"><div class="row-label"><span>Personalizar iluminação</span><small>Aplicada ao reconectar após reiniciar as conexões</small></div><div class="row-control"><input type="checkbox" class="switch" data-config="dualSenseLighting"></div></label>

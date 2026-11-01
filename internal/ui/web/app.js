@@ -8,7 +8,7 @@
   const all = query => [...document.querySelectorAll(query)];
   const xboxPadHTML = document.getElementById('test-output-controller')?.innerHTML || '';
   const prefsKey = 'pad2go-ui-v2';
-  const ui = { view: 'controllers', detail: null, testing: null, discoveryOpen: false, discoveryKind: null, notifications: true, remapScope: 'global' };
+  const ui = { view: 'controllers', detail: null, testing: null, discoveryOpen: false, discoveryKind: null, notifications: true };
   let snap = null;
   let draft = null;
   let inputStream = null;
@@ -26,6 +26,7 @@
   const paths = {
     gamepad: '<path d="M6 8h12c2 0 3 2 3 4l1 5c.5 3-2 4-4 2l-2-2H8l-2 2c-2 2-4.5 1-4-2l1-5c0-2 1-4 3-4Z"/><path d="M6 11v5m-2.5-2.5h5m7.5-1h.01m2 2h.01"/>',
     orbit: '<circle cx="12" cy="12" r="3"/><ellipse cx="12" cy="12" rx="10" ry="5" transform="rotate(-35 12 12)"/>',
+    sliders: '<path d="M4 7h9m4 0h3M4 17h3m4 0h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M4.9 4.9l2.1 2.1m10 10 2.1 2.1M2 12h3m14 0h3M4.9 19.1 7 17M17 7l2.1-2.1"/>',
     bluetooth: '<path d="m7 7 10 10-5 4V3l5 4L7 17"/>',
     monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M12 17v4m-4 0h8"/>',
@@ -43,6 +44,17 @@
   function icons() { all('[data-icon]').forEach(node => { node.outerHTML = icon(node.dataset.icon); }); }
   function persistPrefs() { try { localStorage.setItem(prefsKey, JSON.stringify({ notifications: ui.notifications })); } catch { /* Optional. */ } }
   function announce(message, error = false) { el('feedback').textContent = message; el('feedback').classList.toggle('error', error); el('feedback').setAttribute('role', error ? 'alert' : 'status'); }
+
+  // Bridge for the Preact modules: they read the same snap/draft, change the
+  // draft through update() (which saves like any other setting) and re-render
+  // after each render() here.
+  const listeners = new Set();
+  window.pad2go = {
+    state: () => ({ snap, draft }),
+    update(mutator) { if (!draft) return; mutator(draft); save(); notifyModules(); },
+    onChange(callback) { listeners.add(callback); return () => listeners.delete(callback); },
+  };
+  function notifyModules() { listeners.forEach(callback => callback()); }
 
   async function api(path, { method = 'GET', body } = {}) {
     const response = await fetch(path, { method, headers: { 'X-Pad2go': '1', ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
@@ -206,25 +218,12 @@
   }
 
   function renderSettings() {
-    if (!draft.outputRemaps) draft.outputRemaps = {};
     all('[data-config]').forEach(node => {
       const value = draft[node.dataset.config];
       if (node.type === 'checkbox') node.checked = value;
       else if (document.activeElement !== node) node.value = value;
     });
     all('[data-deadzone]').forEach(node => { if (document.activeElement !== node) node.value = draft.deadzones[node.dataset.deadzone]; });
-    all('[data-remap]').forEach(node => { node.value = draft.remaps[node.dataset.remap] || 'Default'; });
-    all('[data-ds-remap]').forEach(node => { node.value = draft.dualSenseRemaps?.[node.dataset.dsRemap] || 'Default'; });
-    const scopeRemaps = draft.outputRemaps[ui.remapScope] || {};
-    all('[data-output-remap]').forEach(node => {
-      const source = node.dataset.outputRemap;
-      if (document.activeElement !== node) node.value = scopeRemaps[source] || 'Default';
-      const inherited = ui.remapScope !== 'global' && (!scopeRemaps[source] || scopeRemaps[source] === 'Default')
-        ? draft.outputRemaps.global?.[source] : null;
-      const hint = node.closest('.remap-field')?.querySelector('[data-remap-inherit]');
-      if (hint) hint.textContent = inherited ? `Global: ${outputRemapLabels[inherited] || inherited}` : '';
-    });
-    all('[data-remap-scope]').forEach(button => button.setAttribute('aria-checked', button.dataset.remapScope === ui.remapScope));
     all('[data-layout]').forEach(button => button.setAttribute('aria-checked', button.dataset.layout === draft.layout));
     el('layout-hint').textContent = draft.layout === 'Switch' ? 'Pela letra: A do Switch → A do Xbox' : 'Pela posição: B do Switch → A do Xbox';
     el('vibration-value').value = `${draft.vibration * 20}%`;
@@ -242,7 +241,7 @@
     el('apply-config').disabled = snap.restarting;
     el('apply-config').textContent = snap.restarting ? 'Reiniciando…' : 'Reiniciar conexões';
     el('platform-notice').hidden = !mac;
-    ['output-default', ...all('[data-player-output]')].forEach(select => [...select.options].forEach(option => { if (snap.platform === 'macOS' && ['xbox', 'dualsense', 'switch'].includes(option.value)) option.disabled = true; }));
+    [el('output-default'), ...all('[data-player-output]')].forEach(select => [...select.options].forEach(option => { option.disabled = mac && ['xbox', 'dualsense', 'switch'].includes(option.value); }));
     el('host-mac').placeholder = mac ? 'Necessário para parear' : 'Detectar automaticamente';
     el('output-default').value = ['vigem', 'uinput'].includes(snap.output.default) ? 'xbox' : snap.output.default;
     const apply = el('apply-output');
@@ -271,6 +270,7 @@
     const busy = snap.discovery.step >= 1 && snap.discovery.step < 4 && !snap.discovery.failure && !snap.discovery.foreign;
     el('sidebar-status').textContent = fault ? 'Ação necessária' : snap.restarting ? 'Reiniciando…' : busy ? 'Conectando…' : snap.players.length ? `${snap.players.length} ${snap.players.length === 1 ? 'jogador' : 'jogadores'}` : 'Procurando controles';
     renderDevices(); renderDiscovery(); icons();
+    notifyModules();
   }
 
   // --- Input test -------------------------------------------------------------
@@ -374,7 +374,9 @@
     el('test-shoulders').innerHTML = testShoulders(kinds);
     el('test-controller').innerHTML = await controllerTestArt(slot?.members || [], horizontal);
     el('test-controller').className = `test-controller ${kinds.length === 2 ? 'joy-pair' : kinds[0] || ''}${horizontal ? ' joy-horizontal' : ''}`;
-    el('test-mapping').textContent = mappingText(slot);
+    // Running output remaps (applied config), so the test proves them.
+    const remaps = (slot?.activeRemaps || []).map(r => `${r.source} → ${r.target === 'None' ? 'Sem ação' : r.target}`);
+    el('test-mapping').textContent = mappingText(slot) + (remaps.length ? ` · Remapeado: ${remaps.join(', ')}` : '');
     await renderVirtualOutput(slot);
     inputStream = new EventSource(`/api/players/${player}/input`);
     inputStream.addEventListener('input', event => showInput(JSON.parse(event.data)));
@@ -570,34 +572,9 @@
   }
 
   // --- Events -------------------------------------------------------------------------
-  const titles = { controllers: 'Controles', motion: 'Movimento', settings: 'Ajustes' };
+  const titles = { controllers: 'Controles', motion: 'Movimento', mapping: 'Mapeamento', settings: 'Ajustes' };
   el('main-content').addEventListener('scroll', () => el('toolbar').classList.toggle('scrolled', el('main-content').scrollTop > 2), { passive: true });
   function setView(view, focus = false) { ui.view = view; el('toolbar-title').textContent = titles[view]; announce(''); render(); el('main-content').scrollTop = 0; if (view === 'settings') diagnose(); if (focus) el(`tab-${view}`).focus(); }
-  const remapLabels = { Default: 'Padrão', None: 'Sem ação', MINUS: '−', PLUS: '+', L_STK: 'Clique analógico L', R_STK: 'Clique analógico R', UP: 'Cima', DOWN: 'Baixo', LEFT: 'Esquerda', RIGHT: 'Direita', HOME: 'Home', CAPT: 'Captura' };
-  const remapValues = ['Default', 'None', 'A', 'B', 'X', 'Y', 'L', 'R', 'ZL', 'ZR', 'MINUS', 'PLUS', 'L_STK', 'R_STK', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'HOME', 'CAPT'];
-  el('remaps').innerHTML = [['home', 'Home'], ['capt', 'Captura'], ['c', 'C (GameCube)'], ['gl', 'GL'], ['gr', 'GR'], ['sll', 'SL do Joy-Con L'], ['srl', 'SR do Joy-Con L'], ['slr', 'SL do Joy-Con R'], ['srr', 'SR do Joy-Con R']].map(([key, name]) => `<div class="row"><div class="row-label"><label for="remap-${key}">${name}</label></div><div class="row-control"><select id="remap-${key}" data-remap="${key}">${remapValues.map(value => `<option value="${value}">${remapLabels[value] || value}</option>`).join('')}</select></div></div>`).join('');
-
-  const outputRemapLabels = {
-    Default: 'Padrão', None: 'Sem ação',
-    A: 'A', B: 'B', X: 'X', Y: 'Y',
-    UP: 'Direcional ↑', DOWN: 'Direcional ↓', LEFT: 'Direcional ←', RIGHT: 'Direcional →',
-    L: 'L (bumper)', R: 'R (bumper)', ZL: 'ZL (gatilho)', ZR: 'ZR (gatilho)',
-    MINUS: '− / Create', PLUS: '+ / Options', HOME: 'Home / PS', CAPT: 'Captura', C: 'C (Chat)',
-    MUTE: 'Mudo', L_STK: 'Clique L3', R_STK: 'Clique R3',
-    SL_L: 'SL (Joy-Con L)', SR_L: 'SR (Joy-Con L)', SL_R: 'SL (Joy-Con R)', SR_R: 'SR (Joy-Con R)',
-    GL: 'GL', GR: 'GR',
-    PS_L_Touch: 'Touch esquerdo', PS_R_Touch: 'Touch direito', PS_C_Click: 'Clique do touchpad',
-    GC_L_CLICK: 'Clique L (GameCube)', GC_R_CLICK: 'Clique R (GameCube)',
-  };
-  const outputRemapTargets = ['Default', 'None', 'A', 'B', 'X', 'Y', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'L', 'R', 'ZL', 'ZR', 'MINUS', 'PLUS', 'HOME', 'CAPT', 'C', 'MUTE', 'L_STK', 'R_STK', 'PS_C_Click', 'SL_L', 'SR_L', 'SL_R', 'SR_R', 'GL', 'GR'];
-  const outputRemapSources = ['A', 'B', 'X', 'Y', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'L', 'R', 'ZL', 'ZR', 'MINUS', 'PLUS', 'HOME', 'CAPT', 'C', 'MUTE', 'L_STK', 'R_STK', 'SL_L', 'SR_L', 'SL_R', 'SR_R', 'GL', 'GR', 'PS_L_Touch', 'PS_R_Touch', 'PS_C_Click', 'GC_L_CLICK', 'GC_R_CLICK'];
-  el('output-remaps').innerHTML = outputRemapSources.map(source => `
-    <div class="remap-field">
-      <span class="remap-source"><label for="out-remap-${source}">${escape(outputRemapLabels[source] || source)}</label><small data-remap-inherit="${source}"></small></span>
-      <select id="out-remap-${source}" data-output-remap="${source}">${outputRemapTargets.map(value => `<option value="${value}">${escape(outputRemapLabels[value] || value)}</option>`).join('')}</select>
-    </div>`).join('');
-  const dsTargets = [['Default','Padrão'],['None','Sem ação'],['B','A'],['A','B'],['Y','X'],['X','Y'],['L','LB'],['R','RB'],['ZL','LT'],['ZR','RT'],['MINUS','View'],['PLUS','Menu'],['L_STK','Analógico esquerdo'],['R_STK','Analógico direito'],['UP','Direcional cima'],['DOWN','Direcional baixo'],['LEFT','Direcional esquerda'],['RIGHT','Direcional direita'],['HOME','Xbox']];
-  el('dualsense-remaps').innerHTML = [['cross','Cruz'],['circle','Círculo'],['square','Quadrado'],['triangle','Triângulo'],['l1','L1'],['r1','R1'],['l2','L2'],['r2','R2'],['l3','L3'],['r3','R3'],['create','Criar'],['options','Opções'],['ps','PS'],['touch','Clique do touchpad'],['up','Direcional cima'],['down','Direcional baixo'],['left','Direcional esquerda'],['right','Direcional direita']].map(([key,name]) => `<div class="row"><div class="row-label"><label for="ds-remap-${key}">${name}</label></div><div class="row-control"><select id="ds-remap-${key}" data-ds-remap="${key}">${dsTargets.map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select></div></div>`).join('');
 
   document.addEventListener('click', async event => {
     const button = event.target.closest('button'); if (!button || button.disabled) return;
@@ -616,11 +593,6 @@
       try { await api(`/api/players/${player}/disconnect`, { method: 'POST' }); ui.detail = null; announce(`Jogador ${player} desconectado. Os demais mantêm seus números.`); } catch (error) { announce(`Não foi possível desconectar: ${error.message}`, true); }
     }
     else if (button.dataset.layout) { draft.layout = button.dataset.layout; render(); save(); }
-    else if (button.dataset.remapScope) { ui.remapScope = button.dataset.remapScope; renderSettings(); }
-    else if (button.id === 'reset-output-remaps') {
-      draft.outputRemaps = { ...(draft.outputRemaps || {}), [ui.remapScope]: {} };
-      renderSettings(); save();
-    }
     else if (button.id === 'rumble') {
       try { await api(`/api/players/${ui.testing}/rumble`, { method: 'POST' }); inputNote('Vibração enviada ao controle.'); } catch (error) { inputNote(`Não foi possível vibrar: ${error.message}`); }
     }
@@ -635,16 +607,6 @@
     if (node.id === 'output-default') { setDefaultOutput(node.value, false); return; }
     if (node.dataset.playerOutput) { setPlayerOutput(Number(node.dataset.playerOutput), node.value); return; }
     if (!draft) return;
-    if (node.hasAttribute('data-output-remap')) {
-      const source = node.dataset.outputRemap;
-      const scope = ui.remapScope;
-      const table = { ...(draft.outputRemaps?.[scope] || {}) };
-      if (node.value === 'Default') delete table[source];
-      else table[source] = node.value;
-      draft.outputRemaps = { ...(draft.outputRemaps || {}), [scope]: table };
-      save();
-      return;
-    }
     if (node.dataset.config && node.type !== 'range') {
       if (!validate(node)) return;
       const key = node.dataset.config;
@@ -652,8 +614,6 @@
       save();
     }
     if (node.hasAttribute('data-deadzone')) { if (!validate(node)) return; draft.deadzones[node.dataset.deadzone] = Number(node.value); save(); }
-    if (node.hasAttribute('data-remap')) { draft.remaps[node.dataset.remap] = node.value; save(); }
-    if (node.hasAttribute('data-ds-remap')) { draft.dualSenseRemaps = { ...draft.dualSenseRemaps, [node.dataset.dsRemap]: node.value }; save(); }
     if (node.dataset.deviceHold) { draft.holds = { ...draft.holds, [node.dataset.deviceHold]: node.value }; save(); }
   });
   document.addEventListener('input', event => {

@@ -275,6 +275,13 @@ input[type='range'], progress { accent-color: var(--accent); }
 .remap-source label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .remap-source small { color: var(--secondary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .remap-field select { flex: none; width: 138px; }
+.subgroup-title { margin: 14px 4px 6px; font-size: 12px; font-weight: 600; color: var(--secondary); }
+.remap-toolbar + .subgroup-title { margin-top: 4px; }
+dialog.confirm { max-width: 420px; border: 0; border-radius: var(--radius); padding: 20px; color: var(--label); background: var(--group-bg); box-shadow: 0 12px 40px rgba(0, 0, 0, .3); }
+dialog.confirm::backdrop { background: rgba(0, 0, 0, .35); }
+dialog.confirm h2 { font-size: 15px; margin: 0 0 8px; }
+dialog.confirm p { color: var(--secondary); margin: 0 0 18px; }
+dialog.confirm footer { display: flex; justify-content: flex-end; gap: 8px; }
 
 
 /* Banners. */
