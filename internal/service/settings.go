@@ -17,6 +17,7 @@ type Settings struct {
 	Host                  string            `json:"host"`
 	Port                  int               `json:"port"`
 	Max                   int               `json:"max"`
+	AutoDisconnectMinutes int               `json:"autoDisconnectMinutes"`
 	Backend               string            `json:"backend"`
 	HostMAC               string            `json:"hostMac"`
 	Hold                  string            `json:"hold"`
@@ -66,7 +67,8 @@ func SettingsFrom(c *config.Config) Settings {
 		Vibration: c.VibrationStrength, Sensitivity: c.CemuhookSensitivity,
 		Host: c.CemuhookHost, Port: c.CemuhookPort, Max: c.MaxControllers,
 		Backend: c.Output, HostMAC: c.HostMAC, Hold: c.DefaultHoldMode,
-		Trigger: c.GCTriggerMode, Haptics: c.ConnectHaptics, Foreign: c.AcceptForeignControllers,
+		AutoDisconnectMinutes: c.AutoDisconnectMinutes,
+		Trigger:               c.GCTriggerMode, Haptics: c.ConnectHaptics, Foreign: c.AcceptForeignControllers,
 		Deadzones: Deadzones{
 			JoyCon:    c.Deadzone("joycon") * 100,
 			Pro:       c.Deadzone("pro_controller") * 100,
@@ -95,6 +97,7 @@ func (s Settings) Apply(c *config.Config) {
 	c.ABXYMode, c.VibrationStrength, c.CemuhookSensitivity = s.Layout, s.Vibration, s.Sensitivity
 	c.CemuhookHost, c.CemuhookPort, c.MaxControllers = s.Host, s.Port, s.Max
 	c.Output, c.HostMAC, c.DefaultHoldMode = s.Backend, s.HostMAC, s.Hold
+	c.AutoDisconnectMinutes = s.AutoDisconnectMinutes
 	c.GCTriggerMode, c.ConnectHaptics, c.AcceptForeignControllers = s.Trigger, s.Haptics, s.Foreign
 	// Configs are copied by value during save; never mutate a map still shared
 	// with the running configuration, especially when validation later fails.

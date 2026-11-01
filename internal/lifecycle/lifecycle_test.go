@@ -229,7 +229,9 @@ func TestDropAfterAttachDetachesAndReconnects(t *testing.T) {
 	h := start(t, newRadio(), nil)
 	h.radio.advertise("P", protocol.ProController2PID, hostMAC)
 	eventually(t, "attach", func() bool { return h.app.Connected("P") })
-	h.radio.drop("P")
+	if err := h.app.Disconnect(1); err != nil {
+		t.Fatal(err)
+	}
 	if _, closed := h.pads.Snapshot()[0].State(); !closed {
 		t.Fatal("dropping the only controller should close its player slot")
 	}

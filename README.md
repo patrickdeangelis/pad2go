@@ -146,6 +146,7 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 | `output` | `auto`, `vigem`, `uinput`, `xbox`, `dualsense`, `switch` or `none` |
 | `output_overrides` | per-controller output by MAC: `auto`, `xbox`, `dualsense`, `switch` or `none` |
 | `output_remaps` | virtual button remaps by scope: `global` plus `xbox`/`dualsense`/`switch` overrides, in protocol button names (`None` clears a button) |
+| `auto_disconnect_minutes` | disconnect each controller after input inactivity; `0` disables, `1`-`120` sets the timeout |
 | `host_mac` | this PC's Bluetooth MAC; auto-detected on Windows/Linux |
 | `abxy_mode` | `Xbox` (positional: Switch B → Xbox A) or `Switch` (by label) |
 | `combine_joycons` | merge a left + right Joy-Con into one pad |

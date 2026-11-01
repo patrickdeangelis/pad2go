@@ -112,6 +112,7 @@ func eventually(t *testing.T, what string, cond func() bool) {
 
 func TestSettingsRoundTrip(t *testing.T) {
 	c := config.Default()
+	c.AutoDisconnectMinutes = 15
 	c.JoyConHoldMode["X"] = config.HoldHorizontal
 	c.HomeMapping = "A"
 	c.OutputRemaps = map[string]map[string]string{
@@ -122,6 +123,49 @@ func TestSettingsRoundTrip(t *testing.T) {
 	SettingsFrom(c).Apply(next)
 	if !reflect.DeepEqual(SettingsFrom(c), SettingsFrom(next)) {
 		t.Fatalf("round trip changed settings:\n%+v\n%+v", SettingsFrom(c), SettingsFrom(next))
+	}
+}
+
+func TestAutoDisconnectSettingRoundTrip(t *testing.T) {
+	s := build(t, Options{})
+	set := s.Snapshot().Config
+	if set.AutoDisconnectMinutes != 0 {
+		t.Fatalf("missing config timeout defaults to %d", set.AutoDisconnectMinutes)
+	}
+	set.AutoDisconnectMinutes = 120
+	if err := s.SaveSettings(set); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Snapshot().Pending || s.applied.AutoDisconnectMinutes != 0 {
+		t.Fatal("saved timeout should apply only after restart")
+	}
+	loaded, err := config.Load(s.opt.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.AutoDisconnectMinutes; got != 120 {
+		t.Fatalf("loaded %d", got)
+	}
+	if got := SettingsFrom(loaded).AutoDisconnectMinutes; got != 120 {
+		t.Fatalf("settings shows %d", got)
+	}
+}
+
+func TestAutoDisconnectSettingsRejectOutOfRangeValues(t *testing.T) {
+	s := build(t, Options{})
+	for _, value := range []int{-1, 121} {
+		set := s.Snapshot().Config
+		set.AutoDisconnectMinutes = value
+		if err := s.SaveSettings(set); err == nil {
+			t.Fatalf("accepted timeout %d", value)
+		}
+	}
+	for _, value := range []int{0, 1, 15, 120} {
+		set := s.Snapshot().Config
+		set.AutoDisconnectMinutes = value
+		if err := s.SaveSettings(set); err != nil {
+			t.Fatalf("rejected timeout %d: %v", value, err)
+		}
 	}
 }
 
@@ -176,7 +220,7 @@ func TestConnectToastSaveAndRestart(t *testing.T) {
 	}
 
 	set := snap.Config
-	set.Gyro, set.Port, set.Vibration = true, 0, 3
+	set.Gyro, set.Port, set.Vibration, set.AutoDisconnectMinutes = true, 0, 3, 15
 	if err := s.SaveSettings(set); err == nil {
 		t.Fatal("invalid port must be rejected")
 	}
@@ -191,7 +235,7 @@ func TestConnectToastSaveAndRestart(t *testing.T) {
 	s.Restart()
 	eventually(t, "restart applies settings", func() bool {
 		sn := s.Snapshot()
-		return !sn.Pending && !sn.Restarting && sn.DSU.Running && len(sn.Players) == 1
+		return !sn.Pending && !sn.Restarting && sn.DSU.Running && len(sn.Players) == 1 && s.applied.AutoDisconnectMinutes == 15
 	})
 	r.mu.Lock()
 	connects := r.connects

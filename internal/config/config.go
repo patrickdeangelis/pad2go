@@ -40,6 +40,8 @@ type Config struct {
 	AcceptForeignControllers bool `yaml:"accept_foreign_controllers"`
 	// MaxControllers caps the number of virtual pads (player slots).
 	MaxControllers int `yaml:"max_controllers"`
+	// AutoDisconnectMinutes disconnects controllers after input inactivity; zero disables it.
+	AutoDisconnectMinutes int `yaml:"auto_disconnect_minutes"`
 
 	// ABXYMode is "Xbox" (positional, the default) or "Switch" (by label).
 	ABXYMode string `yaml:"abxy_mode"`
@@ -71,8 +73,8 @@ type Config struct {
 
 	// GyroPassthroughMode "Cemuhook" enables the DSU motion server.
 	GyroPassthroughMode string `yaml:"gyro_passthrough_mode"`
-	CemuhookHost        string `yaml:"cemuhook_host"`
-	CemuhookPort        int    `yaml:"cemuhook_port"`
+	CemuhookHost    string `yaml:"cemuhook_host"`
+	CemuhookPort    int    `yaml:"cemuhook_port"`
 	// CemuhookSensitivity (1-5) scales yaw only.
 	CemuhookSensitivity int `yaml:"cemuhook_sensitivity"`
 
@@ -194,6 +196,9 @@ func (c *Config) applyModeRemaps() {
 
 // Validate checks enumerated values.
 func (c *Config) Validate() error {
+	if c.AutoDisconnectMinutes < 0 || c.AutoDisconnectMinutes > 120 {
+		return fmt.Errorf("auto_disconnect_minutes: want 0-120, got %d", c.AutoDisconnectMinutes)
+	}
 	for _, preset := range []string{c.DualSenseTriggerLeft, c.DualSenseTriggerRight} {
 		if preset != "off" && preset != "resistance" && preset != "barrier" {
 			return fmt.Errorf("dualsense trigger: unknown preset %q", preset)

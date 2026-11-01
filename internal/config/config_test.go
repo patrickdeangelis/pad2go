@@ -13,8 +13,25 @@ func TestMissingFileGivesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Output != "auto" || !cfg.CombineJoyCons || cfg.VibrationStrength != 5 {
+	if cfg.Output != "auto" || !cfg.CombineJoyCons || cfg.VibrationStrength != 5 || cfg.AutoDisconnectMinutes != 0 {
 		t.Fatalf("%+v", cfg)
+	}
+}
+
+func TestAutoDisconnectSettingValidation(t *testing.T) {
+	for _, value := range []int{0, 1, 15, 120} {
+		c := Default()
+		c.AutoDisconnectMinutes = value
+		if err := c.Validate(); err != nil {
+			t.Errorf("value %d rejected: %v", value, err)
+		}
+	}
+	for _, value := range []int{-1, 121} {
+		c := Default()
+		c.AutoDisconnectMinutes = value
+		if err := c.Validate(); err == nil {
+			t.Errorf("value %d accepted", value)
+		}
 	}
 }
 

@@ -286,6 +286,7 @@
     if (key === 'host' && !node.value.trim()) message = 'Informe o endereço do servidor.';
     if (key === 'port' && (!node.value || !Number.isInteger(Number(node.value)) || Number(node.value) < 1 || Number(node.value) > 65535)) message = 'Use uma porta entre 1 e 65535.';
     if (key === 'hostMac' && node.value.trim() && !/^(?:[a-f\d]{12}|(?:[a-f\d]{2}:){5}[a-f\d]{2}|(?:[a-f\d]{2}-){5}[a-f\d]{2})$/i.test(node.value.trim())) message = 'Use AA:BB:CC:DD:EE:FF.';
+    if (key === 'autoDisconnectMinutes' && (!Number.isInteger(Number(node.value)) || Number(node.value) < 0 || Number(node.value) > 120)) message = 'Use um valor inteiro entre 0 e 120 minutos.';
     if (node.hasAttribute('data-deadzone') && (!node.value || !Number.isFinite(Number(node.value)) || Number(node.value) < 0 || Number(node.value) > 50)) message = 'Use um valor entre 0 e 50.';
     node.setAttribute('aria-invalid', Boolean(message));
     // Show the message in the field's own row, next to its label.
@@ -395,7 +396,7 @@
     if (node.dataset.config && node.type !== 'range') {
       if (!validate(node)) return;
       const key = node.dataset.config;
-      draft[key] = node.type === 'checkbox' ? node.checked : ['port', 'max', 'dualSenseBrightness'].includes(key) ? Number(node.value) : node.value.trim();
+      draft[key] = node.type === 'checkbox' ? node.checked : ['port', 'max', 'dualSenseBrightness', 'autoDisconnectMinutes'].includes(key) ? Number(node.value) : node.value.trim();
       save();
     }
     if (node.hasAttribute('data-deadzone')) { if (!validate(node)) return; draft.deadzones[node.dataset.deadzone] = Number(node.value); save(); }

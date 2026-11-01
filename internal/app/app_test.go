@@ -303,7 +303,127 @@ func (d *fakeDev) Rumble(v protocol.Vibration) error {
 	d.mu.Unlock()
 	return nil
 }
-func (d *fakeDev) Close() error { d.closed = true; return nil }
+func (d *fakeDev) Close() error { d.mu.Lock(); d.closed = true; d.mu.Unlock(); return nil }
+
+func (d *fakeDev) isClosed() bool { d.mu.Lock(); defer d.mu.Unlock(); return d.closed }
+
+func waitForIdleClose(t *testing.T, d *fakeDev) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for !d.isClosed() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !d.isClosed() {
+		t.Fatal("idle timeout did not close controller")
+	}
+}
+
+func TestAutoDisconnectResetsOnInputActivity(t *testing.T) {
+	cases := []struct {
+		name string
+		in   protocol.Input
+	}{
+		{"buttons", protocol.Input{Buttons: protocol.BtnA}},
+		{"stick", protocol.Input{Left: protocol.Stick{X: 0.5}}},
+		{"trigger", protocol.Input{LeftTrigger: 1}},
+		{"motion", protocol.Input{Gyro: [3]int16{20}}},
+		{"uncalibrated DualSense motion", protocol.Input{DualSenseGyroRaw: [3]int16{20}}},
+		{"dualsense motion", protocol.Input{DualSenseGyroDPS: [3]float32{2}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a, _ := newApp(t, nil)
+			a.idleTimeout = 220 * time.Millisecond
+			d := newDev("idle", protocol.ProController2PID)
+			if err := a.AddDevice(context.Background(), d); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(120 * time.Millisecond)
+			d.send(tc.in)
+			time.Sleep(120 * time.Millisecond)
+			if d.isClosed() {
+				t.Fatal("input activity did not reset idle deadline")
+			}
+			waitForIdleClose(t, d)
+			if a.Connected(d.addr) {
+				t.Fatal("timed-out controller still occupies its player slot")
+			}
+			a.Close()
+		})
+	}
+}
+
+func TestAutoDisconnectRecognizesInputSources(t *testing.T) {
+	cases := []struct {
+		name string
+		in   protocol.Input
+	}{
+		{"buttons", protocol.Input{Buttons: protocol.BtnA}},
+		{"stick", protocol.Input{Left: protocol.Stick{X: 0.5}}},
+		{"trigger", protocol.Input{LeftTrigger: 1}},
+		{"motion", protocol.Input{Gyro: [3]int16{20}}},
+		{"dualsense motion", protocol.Input{DualSenseGyroDPS: [3]float32{2}}},
+	}
+	if inputActive(protocol.Input{Gyro: [3]int16{1}}) {
+		t.Fatal("stationary gyro noise counted as activity")
+	}
+	if inputActive(protocol.Input{DualSenseMotionCalibrated: true, DualSenseGyroRaw: [3]int16{20}, DualSenseGyroDPS: [3]float32{0.2}}) {
+		t.Fatal("calibrated stationary DualSense bias counted as activity")
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if !inputActive(tc.in) {
+				t.Fatalf("activity not recognized: %+v", tc.in)
+			}
+		})
+	}
+}
+
+func TestAutoDisconnectDisabled(t *testing.T) {
+	a, _ := newApp(t, nil)
+	d := newDev("disabled", protocol.ProController2PID)
+	if err := a.AddDevice(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(120 * time.Millisecond)
+	if d.isClosed() {
+		t.Fatal("disabled auto-disconnect closed an idle controller")
+	}
+	a.Close()
+}
+
+func TestAutoDisconnectExpires(t *testing.T) {
+	a, _ := newApp(t, nil)
+	a.idleTimeout = 350 * time.Millisecond
+	idle := newDev("idle", protocol.ProController2PID)
+	active := newDev("active", protocol.ProController2PID)
+	if err := a.AddDevice(context.Background(), idle); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.AddDevice(context.Background(), active); err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	active.send(protocol.Input{Buttons: protocol.BtnA})
+	go func() {
+		ticker := time.NewTicker(25 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				active.send(protocol.Input{Buttons: protocol.BtnA})
+			}
+		}
+	}()
+	waitForIdleClose(t, idle)
+	close(stop)
+	if active.isClosed() {
+		t.Fatal("active controller was disconnected with idle controller")
+	}
+	a.Close()
+}
 
 func (d *fakeDev) send(in protocol.Input) {
 	d.mu.Lock()
@@ -766,6 +886,7 @@ func TestDualSenseCalibratedMotionToDSU(t *testing.T) {
 		t.Fatalf("accel=%v gyro=%v", accel, gyro)
 	}
 }
+
 func TestDualSenseSlotsFullRetries(t *testing.T) {
 	a, _ := newApp(t, func(c *config.Config) { c.MaxControllers = 1 })
 	if err := a.AddDevice(context.Background(), newDev("p", protocol.ProController2PID)); err != nil {

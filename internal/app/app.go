@@ -57,9 +57,10 @@ type App struct {
 	outputOverrides map[string]string
 	outputRemaps    map[string]map[string]string
 
-	mu             sync.Mutex
-	slots          []*slot
-	dualSenseSlots map[string]int
+	mu              sync.Mutex
+	slots           []*slot
+	dualSenseSlots  map[string]int
+	idleTimeout     time.Duration
 
 	onChange func()
 }
@@ -89,7 +90,8 @@ func New(cfg *config.Config, backend virtualpad.Backend, dsuServer *dsu.Server, 
 	}
 	return &App{
 		cfg: cfg, log: log, backend: backend, dsu: dsuServer, rules: rules,
-		defaultOutput: normalizeOutput(cfg.Output), outputOverrides: overrides,
+		idleTimeout:     time.Duration(cfg.AutoDisconnectMinutes) * time.Minute,
+		defaultOutput:   normalizeOutput(cfg.Output), outputOverrides: overrides,
 		outputRemaps: cloneRemaps(outputRemaps),
 		slots:        make([]*slot, cfg.MaxControllers), dualSenseSlots: make(map[string]int),
 	}
@@ -372,7 +374,8 @@ func (a *App) AddDevice(ctx context.Context, d Device) error {
 		a.slots[idx] = s
 		target = s
 	}
-	m := &member{dev: d, rumbler: newRumbler(d, a.log)}
+	m := &member{dev: d, rumbler: newRumbler(d, a.log), idleDone: make(chan struct{})}
+	m.lastActivity.Store(time.Now().UnixNano())
 	target.mu.Lock()
 	err := target.pad.Join(d.Address(), kind, a.cfg.HoldMode(d.Address()) == config.HoldHorizontal)
 	if err == nil {
@@ -388,6 +391,9 @@ func (a *App) AddDevice(ctx context.Context, d Device) error {
 	a.mu.Unlock()
 
 	d.OnInput(func(in protocol.Input) { target.onInput(m, in) })
+	if a.idleTimeout > 0 {
+		go a.watchIdle(m)
+	}
 	for _, mm := range members {
 		if err := mm.dev.SetPlayerLEDs(ctx, player); err != nil {
 			a.log.Warn("set player LEDs failed", "addr", mm.dev.Address(), "err", err)
@@ -443,6 +449,7 @@ func (a *App) removeDevice(addr string) bool {
 			a.dualSenseSlots[addr] = s.player
 		}
 		m.dev.OnInput(nil)
+		m.stopIdle()
 		m.rumbler.stop()
 		s.mu.Lock()
 		s.members = slices.DeleteFunc(s.members, func(x *member) bool { return x == m })
@@ -485,6 +492,46 @@ type member struct {
 	band          atomic.Int32
 	batteryDetail atomic.Int32
 	pressed       uint32 // last raw buttons; guarded by slot.mu
+	lastActivity  atomic.Int64
+	idleDone      chan struct{}
+	idleOnce      sync.Once
+}
+
+func (m *member) stopIdle() {
+	m.idleOnce.Do(func() {
+		if m.idleDone != nil {
+			close(m.idleDone)
+		}
+	})
+}
+
+func (a *App) watchIdle(m *member) {
+	interval := a.idleTimeout / 4
+	if interval > time.Second {
+		interval = time.Second
+	}
+	if interval < 50*time.Millisecond {
+		interval = 50 * time.Millisecond
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-m.idleDone:
+			return
+		case <-t.C:
+			if time.Since(time.Unix(0, m.lastActivity.Load())) >= a.idleTimeout {
+				a.log.Info("disconnecting idle controller", "addr", m.dev.Address(), "timeout", a.idleTimeout)
+				if err := m.dev.Close(); err != nil {
+					a.log.Warn("close idle controller failed", "addr", m.dev.Address(), "err", err)
+				}
+				// Host-initiated closes suppress the transport's disconnect callback,
+				// so detach explicitly. RemoveDevice is safe if a callback also ran.
+				a.RemoveDevice(m.dev.Address())
+				return
+			}
+		}
+	}
 }
 
 // slot is one player slot: the player pad state, the OS virtual pad it
@@ -529,6 +576,9 @@ func (s *slot) canJoin(k protocol.Kind) bool {
 
 func (s *slot) onInput(m *member, in protocol.Input) {
 	a := s.app
+	if inputActive(in) {
+		m.lastActivity.Store(time.Now().UnixNano())
+	}
 	s.mu.Lock()
 	f, ok := s.pad.Update(m.dev.Address(), in)
 	m.pressed = in.Buttons
@@ -580,6 +630,30 @@ func (s *slot) onInput(m *member, in protocol.Input) {
 	if ok && a.dsu != nil {
 		a.publishMotion(dsuID, s.lowestBattery(), f)
 	}
+}
+
+func inputActive(in protocol.Input) bool {
+	if in.Buttons != 0 || in.Left.X != 0 || in.Left.Y != 0 || in.Right.X != 0 || in.Right.Y != 0 || in.LeftTrigger != 0 || in.RightTrigger != 0 {
+		return true
+	}
+	for _, v := range in.Gyro {
+		if v >= 5 || v <= -5 {
+			return true
+		}
+	}
+	if !in.DualSenseMotionCalibrated {
+		for _, v := range in.DualSenseGyroRaw {
+			if v >= 5 || v <= -5 {
+				return true
+			}
+		}
+	}
+	for _, v := range in.DualSenseGyroDPS {
+		if v >= 1 || v <= -1 {
+			return true
+		}
+	}
+	return false
 }
 
 // lowestBattery is the lowest battery band among the slot's controllers.
