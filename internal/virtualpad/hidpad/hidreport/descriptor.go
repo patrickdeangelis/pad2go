@@ -18,7 +18,7 @@ func (b *descriptorBuilder) item(kind itemType, tag byte, value uint32, size int
 	if size == 4 {
 		sizeCode = 3
 	}
-	b.data = append(b.data, byte(tag<<4)|byte(kind<<2)|sizeCode)
+	b.data = append(b.data, tag<<4|byte(kind<<2)|sizeCode)
 	for i := 0; i < size; i++ {
 		b.data = append(b.data, byte(value>>(8*i)))
 	}

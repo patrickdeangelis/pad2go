@@ -162,7 +162,7 @@ func checkDefaultOutput(pool *virtualpad.Pool, kind string) error {
 		if xboxErr == nil || dsErr == nil {
 			return nil
 		}
-		return fmt.Errorf("no virtual output available: Xbox 360: %v; DualSense/Switch: %v", xboxErr, dsErr)
+		return fmt.Errorf("no virtual output available: Xbox 360: %w; DualSense/Switch: %w", xboxErr, dsErr)
 	}
 }
 

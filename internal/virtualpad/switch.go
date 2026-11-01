@@ -24,7 +24,7 @@ func openSwitch() (Backend, error) {
 		return nil, fmt.Errorf("output switch needs WinUHid (Windows) or /dev/uhid (Linux)")
 	}
 	if err := hidpad.Check(); err != nil {
-		return nil, fmt.Errorf("Switch virtual output unavailable: %w", err)
+		return nil, fmt.Errorf("virtual Switch Pro output unavailable: %w", err)
 	}
 	return switchBackend{}, nil
 }

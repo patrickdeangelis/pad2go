@@ -42,7 +42,7 @@ func backendKey(kind string) (string, error) {
 		case "linux":
 			return "uinput", nil
 		default:
-			return "", fmt.Errorf("Xbox 360 output is not available on %s", runtime.GOOS)
+			return "", fmt.Errorf("no Xbox 360 output on %s", runtime.GOOS)
 		}
 	case OutputDualSense:
 		return "dualsense", nil

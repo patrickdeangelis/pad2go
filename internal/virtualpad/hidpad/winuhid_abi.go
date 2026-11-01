@@ -27,7 +27,7 @@ func winUHIDCtlCode(function uint32, anyAccess bool) uint32 {
 	if anyAccess {
 		access = 0 // FILE_ANY_ACCESS
 	}
-	return (0x22 << 16) | (access << 14) | ((0x800 + function) << 2) | 0 // METHOD_BUFFERED
+	return (0x22 << 16) | (access << 14) | ((0x800 + function) << 2) // METHOD_BUFFERED is 0
 }
 
 var (
@@ -128,9 +128,9 @@ func classifyWinUHIDError(err error) error {
 	}
 	switch {
 	case errors.Is(err, syscall.Errno(2)), errors.Is(err, syscall.Errno(3)):
-		return fmt.Errorf("%w: WinUHid %s: %v", ErrDriverMissing, winUHIDDevicePath, err)
+		return fmt.Errorf("%w: WinUHid %s: %w", ErrDriverMissing, winUHIDDevicePath, err)
 	case errors.Is(err, syscall.Errno(5)):
-		return fmt.Errorf("%w: WinUHid %s: %v", ErrPermission, winUHIDDevicePath, err)
+		return fmt.Errorf("%w: WinUHid %s: %w", ErrPermission, winUHIDDevicePath, err)
 	default:
 		return fmt.Errorf("open %s: %w", winUHIDDevicePath, err)
 	}

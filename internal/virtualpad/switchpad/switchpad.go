@@ -566,16 +566,16 @@ func spiRead(address uint32, size int) []byte {
 		size = 30
 	}
 	out := make([]byte, size)
-	switch {
-	case address == 0x6020:
+	switch address {
+	case 0x6020:
 		copy(out, imuCalibration[:])
-	case address == 0x603D:
+	case 0x603D:
 		copy(out, stickCalibration[:])
-	case address == 0x6080:
+	case 0x6080:
 		copy(out, sensorParameters[:])
-	case address == 0x6098:
+	case 0x6098:
 		copy(out, stickParameters[:])
-	case address == 0x8010 || address == 0x8026:
+	case 0x8010, 0x8026:
 		// No user calibration: 0xFF makes SDL fall back to the factory data.
 		for i := range out {
 			out[i] = 0xFF

@@ -240,7 +240,7 @@ func (h *winUHIDHost) ioctlHandle(handle windows.Handle, code uint32, in, out []
 	if err != nil {
 		return err
 	}
-	defer windows.CloseHandle(event)
+	defer func() { _ = windows.CloseHandle(event) }()
 	var inPtr, outPtr *byte
 	if len(in) > 0 {
 		inPtr = &in[0]
@@ -262,7 +262,7 @@ func winUHIDNextEvent(handle windows.Handle) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer windows.CloseHandle(event)
+	defer func() { _ = windows.CloseHandle(event) }()
 	buf := make([]byte, 4096+128)
 	overlapped := windows.Overlapped{HEvent: event}
 	var returned uint32
@@ -292,7 +292,7 @@ func winUHIDWrite(ctx context.Context, handle windows.Handle, report []byte) err
 	if err != nil {
 		return err
 	}
-	defer windows.CloseHandle(event)
+	defer func() { _ = windows.CloseHandle(event) }()
 	overlapped := windows.Overlapped{HEvent: event}
 	var written uint32
 	err = windows.WriteFile(handle, report, &written, &overlapped)
