@@ -91,7 +91,7 @@ func outputPoolApp(t *testing.T, out string, overrides map[string]string) (*App,
 }
 
 func xboxRecorder(recs map[string]*virtualpad.Recorder) *virtualpad.Recorder {
-	for _, key := range []string{"vigem", "uinput"} {
+	for _, key := range []string{"vigem", "uinput", "xbox"} {
 		if r := recs[key]; r != nil {
 			return r
 		}
