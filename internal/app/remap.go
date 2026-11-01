@@ -2,6 +2,7 @@ package app
 
 import (
 	"maps"
+	"sort"
 
 	"github.com/patrickdeangelis/pad2go/internal/mapping"
 	"github.com/patrickdeangelis/pad2go/internal/protocol"
@@ -108,7 +109,14 @@ func (s *slot) remapOutput(kind protocol.Kind) string {
 	if s.outputOverride != "" {
 		return s.outputOverride
 	}
-	switch def := s.app.DefaultOutput(); def {
+	return ResolveDefault(s.app.DefaultOutput(), kind)
+}
+
+// ResolveDefault is the output a controller of this kind gets from the
+// default output: Automática sends a DualSense to DualSense and everything
+// else to Xbox 360.
+func ResolveDefault(def string, kind protocol.Kind) string {
+	switch def {
 	case virtualpad.OutputNone:
 		return virtualpad.OutputNone
 	case virtualpad.OutputAuto, "":
@@ -119,6 +127,62 @@ func (s *slot) remapOutput(kind protocol.Kind) string {
 	default:
 		return def
 	}
+}
+
+// Remap is one running output remap, as protocol button names.
+type Remap struct {
+	Source, Target string
+}
+
+// activeRemaps lists the remaps that apply to output after merging the
+// global table with the output's own, with the same rules as
+// compileOutputRemaps. Unknown names are skipped; "None" stays "None". The
+// list is ordered by source button bit.
+func activeRemaps(global, perOutput map[string]string) []Remap {
+	final := map[string]string{}
+	add := func(remaps map[string]string) {
+		for source, target := range remaps {
+			if _, ok := protocol.ButtonsByName[source]; !ok {
+				continue
+			}
+			switch target {
+			case "", "Default":
+				continue
+			case "None":
+			default:
+				if _, ok := protocol.ButtonsByName[target]; !ok {
+					continue
+				}
+			}
+			final[source] = target
+		}
+	}
+	add(global)
+	add(perOutput)
+	out := make([]Remap, 0, len(final))
+	for source, target := range final {
+		out = append(out, Remap{Source: source, Target: target})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		bi, bj := protocol.ButtonsByName[out[i].Source], protocol.ButtonsByName[out[j].Source]
+		if bi != bj {
+			return bi < bj
+		}
+		return out[i].Source < out[j].Source
+	})
+	return out
+}
+
+// activeRemapsFor is the running remap list for one output.
+func (a *App) activeRemapsFor(output string) []Remap {
+	if output == "" || output == virtualpad.OutputNone {
+		return nil
+	}
+	a.outputMu.Lock()
+	global := maps.Clone(a.outputRemaps["global"])
+	perOutput := maps.Clone(a.outputRemaps[output])
+	a.outputMu.Unlock()
+	return activeRemaps(global, perOutput)
 }
 
 // applyOutputRemaps rewrites the frame's protocol buttons and rebuilds the

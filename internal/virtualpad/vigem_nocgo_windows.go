@@ -11,5 +11,5 @@ func openPlatform() (Backend, error) {
 }
 
 func diagnose() []Check {
-	return []Check{{Name: "ViGEmBus", OK: false, Detail: "não verificado (build sem cgo)", Help: "output"}}
+	return []Check{{Name: "ViGEmBus", OK: false, Detail: "build sem ViGEm (precisa de cgo)", Help: "output"}}
 }

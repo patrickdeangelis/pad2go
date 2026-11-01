@@ -103,7 +103,7 @@ func Name(kind string) string {
 	case OutputNone:
 		return "Somente movimento"
 	default:
-		return "Automático"
+		return "Automática"
 	}
 }
 

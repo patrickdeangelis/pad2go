@@ -742,6 +742,16 @@ type Player struct {
 	// OutputOverride is the manual choice, empty when following the default.
 	OutputOverride     string
 	OutputOverrideKind string
+	// Requested is the output this slot asks for: its override, or what the
+	// default resolves to for its controllers. It differs from OutputKind when
+	// that backend is unavailable.
+	Requested string
+	// DefaultResolved is what the default output resolves to for this slot,
+	// ignoring any override.
+	DefaultResolved string
+	// ActiveRemaps are the output remaps running on this slot (applied
+	// configuration, not saved changes waiting for a restart).
+	ActiveRemaps []Remap
 }
 
 // Member is one controller in a player slot.
@@ -766,6 +776,7 @@ func (m Member) Battery() protocol.BatteryBand {
 
 // Players returns the occupied player slots in order.
 func (a *App) Players() []Player {
+	def := a.DefaultOutput()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	var out []Player
@@ -802,6 +813,21 @@ func (a *App) Players() []Player {
 				Diagnostics: diagnostics,
 			})
 		}
+		kind := protocol.KindUnknown
+		for i, m := range p.Members {
+			if i == 0 || m.Kind == protocol.KindDualSense {
+				kind = m.Kind
+			}
+		}
+		p.DefaultResolved = ResolveDefault(def, kind)
+		p.Requested = p.DefaultResolved
+		if p.OutputOverrideKind != "" && p.OutputOverrideKind != virtualpad.OutputAuto {
+			p.Requested = p.OutputOverrideKind
+		}
+		s.mu.Lock()
+		remapOutput := s.remapOutput(kind)
+		s.mu.Unlock()
+		p.ActiveRemaps = a.activeRemapsFor(remapOutput)
 		out = append(out, p)
 	}
 	return out

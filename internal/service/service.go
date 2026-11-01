@@ -55,6 +55,7 @@ type Service struct {
 	backend         string // "none" for motion-only output
 	defaultOutput   string
 	outputAvailable map[string]bool
+	outputErrors    map[string]error
 	fault           *Fault
 	dsuErr          string
 	discovery       Discovery
@@ -165,6 +166,63 @@ func checkDefaultOutput(pool *virtualpad.Pool, kind string) error {
 	}
 }
 
+// outputReasons is one Portuguese line per backend the default output needs
+// and cannot open, Xbox first. goos is runtime.GOOS (a parameter for tests).
+func outputReasons(kind string, errs map[string]error, goos string) []string {
+	var out []string
+	add := func(k, msg string) {
+		if errs[k] != nil {
+			out = append(out, msg)
+		}
+	}
+	if kind == virtualpad.OutputAuto || kind == virtualpad.OutputXbox {
+		if errors.Is(errs[virtualpad.OutputXbox], virtualpad.ErrNoCgo) {
+			add(virtualpad.OutputXbox, "Xbox 360: este build não inclui o ViGEm (precisa de um build com cgo e do ViGEmBus)")
+		} else if goos == "windows" {
+			add(virtualpad.OutputXbox, "Xbox 360: ViGEmBus não encontrado")
+		} else {
+			add(virtualpad.OutputXbox, "Xbox 360: /dev/uinput indisponível")
+		}
+	}
+	if kind == virtualpad.OutputAuto || kind == virtualpad.OutputDualSense || kind == virtualpad.OutputSwitch {
+		hid := virtualpad.OutputDualSense
+		if kind == virtualpad.OutputSwitch {
+			hid = virtualpad.OutputSwitch
+		}
+		if goos == "windows" {
+			add(hid, "DualSense/Switch Pro: driver WinUHid não encontrado")
+		} else {
+			add(hid, "DualSense/Switch Pro: /dev/uhid indisponível")
+		}
+	}
+	return out
+}
+
+// outputIssue names why a player's requested output is unavailable, or ""
+// when it is available or motion-only. goos is runtime.GOOS.
+func outputIssue(requested string, errs map[string]error, goos string) string {
+	err := errs[requested]
+	if err == nil {
+		return ""
+	}
+	switch requested {
+	case virtualpad.OutputDualSense:
+		return "DualSense indisponível · WinUHid não encontrado"
+	case virtualpad.OutputSwitch:
+		return "Switch Pro indisponível · WinUHid não encontrado"
+	case virtualpad.OutputXbox:
+		switch {
+		case errors.Is(err, virtualpad.ErrNoCgo):
+			return "Xbox 360 indisponível · build sem ViGEm"
+		case goos == "linux":
+			return "Xbox 360 indisponível · uinput não encontrado"
+		default:
+			return "Xbox 360 indisponível · ViGEmBus não encontrado"
+		}
+	}
+	return ""
+}
+
 // Run supervises the runtime until ctx is done, rebuilding it on Restart.
 func (s *Service) Run(ctx context.Context) error {
 	for ctx.Err() == nil {
@@ -218,18 +276,18 @@ func (s *Service) runOnce(ctx context.Context, cfg *config.Config) {
 	}
 	pool := virtualpad.NewPool(open)
 	defer pool.Close()
-	available := map[string]bool{
-		virtualpad.OutputXbox:      pool.Available(virtualpad.OutputXbox) == nil,
-		virtualpad.OutputDualSense: pool.Available(virtualpad.OutputDualSense) == nil,
-		virtualpad.OutputSwitch:    pool.Available(virtualpad.OutputSwitch) == nil,
+	errs := map[string]error{}
+	for _, k := range []string{virtualpad.OutputXbox, virtualpad.OutputDualSense, virtualpad.OutputSwitch} {
+		errs[k] = pool.Available(k)
 	}
+	available := map[string]bool{virtualpad.OutputXbox: errs[virtualpad.OutputXbox] == nil, virtualpad.OutputDualSense: errs[virtualpad.OutputDualSense] == nil, virtualpad.OutputSwitch: errs[virtualpad.OutputSwitch] == nil}
 	defaultKind := outputKind(cfg.Output)
 	if err := checkDefaultOutput(pool, defaultKind); err != nil {
 		s.log.Error("virtual gamepad output unavailable; per-player output may be motion-only", "err", err)
-		s.setFault(&Fault{Kind: "output", Message: err.Error()})
+		s.setFault(&Fault{Kind: "output", Message: err.Error(), Reasons: outputReasons(defaultKind, errs, runtime.GOOS)})
 	}
 	s.mu.Lock()
-	s.defaultOutput, s.outputAvailable = defaultKind, available
+	s.defaultOutput, s.outputAvailable, s.outputErrors = defaultKind, available, errs
 	s.mu.Unlock()
 
 	var err error
@@ -576,6 +634,7 @@ type PlayerView struct {
 	ActiveRemaps       []ActiveRemap `json:"activeRemaps,omitempty"`
 }
 
+// ActiveRemap is one output remap running on a player, as protocol button names.
 type ActiveRemap struct {
 	Source string `json:"source"`
 	Target string `json:"target"`
@@ -670,7 +729,7 @@ func (s *Service) Snapshot() Snapshot {
 	}
 	if defaultKind != virtualpad.OutputNone && len(s.outputAvailable) > 0 &&
 		!s.outputAvailable[virtualpad.OutputXbox] && !s.outputAvailable[virtualpad.OutputDualSense] {
-		snap.Output.Detail = "Nenhuma saida virtual disponivel"
+		snap.Output.Detail = "Nenhuma saída virtual disponível"
 		snap.Output.MotionOnly = true
 	}
 	snap.DSU = DSUView{
@@ -708,6 +767,11 @@ func (s *Service) Snapshot() Snapshot {
 			v.Name = p.Members[0].Name
 			if len(p.Members) == 2 {
 				v.Name = "Joy-Con 2 · par unido"
+			}
+			v.OutputIssue = outputIssue(p.Requested, s.outputErrors, runtime.GOOS)
+			v.DefaultOutput = virtualpad.Name(p.DefaultResolved)
+			for _, r := range p.ActiveRemaps {
+				v.ActiveRemaps = append(v.ActiveRemaps, ActiveRemap{Source: r.Source, Target: r.Target})
 			}
 			snap.Players = append(snap.Players, v)
 		}
@@ -748,6 +812,18 @@ type Check struct {
 	Help   string `json:"help,omitempty"` // bluetooth, output, mac
 }
 
+// diagnosticDetail is the Portuguese detail for a DualSense/Switch Pro output
+// that failed to open; other errors keep their message.
+func diagnosticDetail(err error, goos string) string {
+	if errors.Is(err, virtualpad.ErrDriverMissing) {
+		if goos == "windows" {
+			return "driver WinUHid não encontrado"
+		}
+		return "/dev/uhid indisponível"
+	}
+	return err.Error()
+}
+
 // Diagnostics checks Bluetooth and the virtual output prerequisites.
 func (s *Service) Diagnostics() []Check {
 	s.mu.Lock()
@@ -767,7 +843,7 @@ func (s *Service) Diagnostics() []Check {
 		}
 		check := Check{Name: name, OK: true, Detail: "disponível", Help: "output"}
 		if backend, err := virtualpad.Open(output); err != nil {
-			check.OK, check.Detail = false, err.Error()
+			check.OK, check.Detail = false, diagnosticDetail(err, runtime.GOOS)
 		} else {
 			_ = backend.Close()
 		}

@@ -9,9 +9,15 @@ import (
 	"sync"
 
 	"github.com/patrickdeangelis/pad2go/internal/mapping"
+	"github.com/patrickdeangelis/pad2go/internal/virtualpad/hidpad"
 )
 
-var ErrDriverMissing = errors.New("virtual output driver is missing")
+// ErrDriverMissing marks a DualSense/Switch Pro output that cannot open
+// because the virtual HID driver (WinUHid, /dev/uhid) is missing.
+var ErrDriverMissing = hidpad.ErrDriverMissing
+
+// ErrNoCgo marks an Xbox 360 output that cannot open because this Windows
+// build has no cgo ViGEm client.
 var ErrNoCgo = errors.New("this build has no cgo ViGEm client")
 
 // RumbleFunc receives force-feedback from games: large (low-frequency) and
