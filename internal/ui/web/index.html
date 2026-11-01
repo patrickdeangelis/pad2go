@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="styles.css">
   <script src="app.js" defer></script>
   <script type="module" src="mapping.js"></script>
+  <script type="module" src="test-dialog.js"></script>
 </head>
 <body>
   <div id="pad2go" class="app">
@@ -168,32 +169,7 @@
     </main>
   </div>
 
-  <dialog id="test-dialog" class="sheet" aria-labelledby="test-title">
-    <header class="sheet-header"><div><h2 id="test-title">Teste de entrada</h2><p>Veja os botões físicos e o que chega ao controle virtual.</p></div></header>
-    <section class="test-device-section" aria-label="Controle conectado">
-      <div class="test-device-heading"><strong id="test-device-name">Controle</strong><span>Entrada física</span></div>
-      <div id="test-shoulders" class="test-shoulders"></div>
-      <div id="test-controller" class="test-controller"></div>
-      <p id="test-mapping" class="test-mapping"></p>
-    </section>
-    <div class="output-heading" id="test-output-heading">Saída virtual</div>
-    <div class="input-layout">
-      <div class="input-pad" id="test-output-controller" role="img" aria-label="Visualização das entradas recebidas">
-        <div class="input-triggers"><span id="pad-l" class="pad-key wide">LB</span><span class="input-center"><span id="pad-back" class="pad-key wide" title="Back (− e Captura)">Back</span><span id="pad-guide" class="pad-key" title="Guide (Home)">⌂</span><span id="pad-start" class="pad-key wide" title="Start (+)">Start</span></span><span id="pad-r" class="pad-key wide">RB</span></div>
-        <div class="input-pad-body"><div class="pad-side"><div class="stick-field"><span class="stick-marker" id="stick-left"></span></div><div class="cross4"><span id="pad-up" class="pad-key">↑</span><span id="pad-left" class="pad-key">←</span><span id="pad-right" class="pad-key">→</span><span id="pad-down" class="pad-key">↓</span></div></div><div class="pad-side"><div class="cross4"><span id="pad-y" class="pad-key">Y</span><span id="pad-x" class="pad-key">X</span><span id="pad-b" class="pad-key">B</span><span id="pad-a" class="pad-key">A</span></div><div class="stick-field"><span class="stick-marker" id="stick-right"></span></div></div></div>
-      </div>
-      <div class="group readings">
-        <div class="row"><div class="row-label"><span>Analógico esquerdo</span></div><output id="left-values" class="value">X 0,00 · Y 0,00</output></div>
-        <div class="row"><div class="row-label"><span>Analógico direito</span></div><output id="right-values" class="value">X 0,00 · Y 0,00</output></div>
-        <div class="row"><div class="row-label"><span>Gatilho LT</span></div><div class="row-control meter"><progress id="trigger-l" max="100" value="0"></progress><output id="trigger-l-value" class="value">0%</output></div></div>
-        <div class="row"><div class="row-label"><span>Gatilho RT</span></div><div class="row-control meter"><progress id="trigger-r" max="100" value="0"></progress><output id="trigger-r-value" class="value">0%</output></div></div>
-        <div class="row"><div class="row-label"><span>Giroscópio (°/s)</span></div><output id="gyro-values" class="value">0,0 · 0,0 · 0,0</output></div>
-        <div class="row" id="touch-test" hidden><div class="row-label"><span>Touchpad</span><small>Até dois contatos simultâneos</small><output id="touch-values" class="value">Sem contato</output></div><svg class="touch-surface" viewBox="0 0 1920 1080" role="img" aria-label="Posição dos contatos no touchpad"><rect width="1920" height="1080" rx="100"/><circle id="touch-point-0" r="75" hidden/><circle id="touch-point-1" r="75" hidden/></svg></div>
-        <div class="row"><div class="row-label"><span>Botões no controle</span><small>O que você aperta, antes de virar o controle virtual</small></div><output id="pressed-values" class="value">—</output></div>
-      </div>
-    </div>
-    <footer class="sheet-footer"><span id="input-state" class="secondary" role="status">Aguardando entradas.</span><button id="rumble" type="button" class="push">Vibrar</button><button id="close-test" type="button" class="push primary">Concluído</button></footer>
-  </dialog>
+  <div id="test-root"></div>
 
   <div id="connection-toasts" class="toasts" aria-live="polite" aria-relevant="additions" aria-label="Avisos de conexão"></div>
 </body>

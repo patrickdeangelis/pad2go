@@ -6,12 +6,10 @@
   const root = document.getElementById('pad2go');
   const el = id => document.getElementById(id);
   const all = query => [...document.querySelectorAll(query)];
-  const xboxPadHTML = document.getElementById('test-output-controller')?.innerHTML || '';
   const prefsKey = 'pad2go-ui-v2';
-  const ui = { view: 'controllers', detail: null, testing: null, discoveryOpen: false, discoveryKind: null, notifications: true };
+  const ui = { view: 'controllers', detail: null, discoveryOpen: false, discoveryKind: null, notifications: true };
   let snap = null;
   let draft = null;
-  let inputStream = null;
   let saveTimer = null;
   let saving = false;
   try {
@@ -53,6 +51,9 @@
     state: () => ({ snap, draft }),
     update(mutator) { if (!draft) return; mutator(draft); save(); notifyModules(); },
     onChange(callback) { listeners.add(callback); return () => listeners.delete(callback); },
+    api: (path, options) => api(path, options),
+    openTest: null, // set by test-dialog.js
+    closeTest: null,
   };
   function notifyModules() { listeners.forEach(callback => callback()); }
 
@@ -119,7 +120,6 @@
     el('player-badge').hidden = !players.length;
     el('player-badge').textContent = players.length;
     el('controllers-subtitle').textContent = players.length ? snap.output.motionOnly ? 'Enviando movimento aos emuladores.' : 'Prontos para o próximo jogo.' : 'Nenhum controle conectado.';
-    if (ui.testing !== null && !players.some(p => p.player === ui.testing)) closeTest();
     if (ui.detail !== null && !players.some(p => p.player === ui.detail)) ui.detail = null;
     // Voltage jitters between snapshots: only the open details show it.
     const shown = players.map(p => ({ ...p, members: p.members.map(m => ({ ...m, volts: ui.detail === p.player ? m.volts.toFixed(2) : 0, diagnostics: m.diagnostics ? { status: reportStatus(m.diagnostics), calibrated: m.diagnostics.calibrated } : null })) }));
@@ -273,240 +273,6 @@
     notifyModules();
   }
 
-  // --- Input test -------------------------------------------------------------
-  const buttonIds = { up: 0x0001, down: 0x0002, left: 0x0004, right: 0x0008, start: 0x0010, back: 0x0020, l: 0x0100, r: 0x0200, guide: 0x0400, a: 0x1000, b: 0x2000, x: 0x4000, y: 0x8000 };
-  const physicalLabels = { MINUS: '−', PLUS: '+', HOME: 'Home', CAPT: 'Captura', C: 'C (Chat)', L_STK: 'L3', R_STK: 'R3', UP: '↑', DOWN: '↓', LEFT: '←', RIGHT: '→', SL_L: 'SL', SR_L: 'SR', SL_R: 'SL', SR_R: 'SR' };
-  const physicalOrder = ['A', 'B', 'X', 'Y', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'L', 'R', 'ZL', 'ZR', 'L_STK', 'R_STK', 'MINUS', 'PLUS', 'HOME', 'CAPT', 'MUTE', 'C', 'SL_L', 'SR_L', 'SL_R', 'SR_R', 'GL', 'GR'];
-  const number = (value, digits = 2) => value.toFixed(digits).replace('.', ',');
-  const physicalKey = (name, kind) => {
-    const common = { UP: 'UP', DOWN: 'DOWN', LEFT: 'LEFT', RIGHT: 'RIGHT', L_STK: 'LS', R_STK: 'RS', MINUS: 'SELECT', PLUS: 'START', HOME: 'HOME', CAPT: 'MUTE', C: 'TOUCH', L: 'L', R: 'R', ZL: 'L2', ZR: 'R2', GC_L_CLICK: 'L2', GC_R_CLICK: 'Z', GL: 'L', GR: 'R', SL_L: 'L', SR_L: 'L', SL_R: 'R', SR_R: 'R' };
-    if (kind === 'ds') return ({ A: 'EAST', B: 'SOUTH', X: 'NORTH', Y: 'WEST', ...common, L: 'L1', R: 'R1', ZL: 'L2', ZR: 'R2', MINUS: 'SELECT', PLUS: 'START', HOME: 'HOME', CAPT: 'MUTE', MUTE: 'MUTE', PS_L_Touch: 'TOUCH', PS_R_Touch: 'TOUCH', PS_C_Click: 'TOUCH' })[name];
-    if (kind === 'gc') return ({ A: 'SOUTH', B: 'WEST', X: 'EAST', Y: 'NORTH', ...common, MINUS: 'SELECT', PLUS: 'START', HOME: 'HOME' })[name];
-    if (kind === 'left' || (kind === 'joy-pair' && ['CAPT', 'SL_L', 'SR_L'].includes(name))) return ({ ...common, ZL: 'ZL', CAPT: 'CAPTURE', SL_L: 'SL', SR_L: 'SR' })[name];
-    if (kind === 'right') return ({ ...common, A: 'EAST', B: 'SOUTH', X: 'NORTH', Y: 'WEST', ZR: 'ZR', SL_R: 'SL', SR_R: 'SR' })[name];
-    if (kind === 'joy-pair' && ['SL_R', 'SR_R'].includes(name)) return ({ ...common, SL_R: 'SL', SR_R: 'SR' })[name];
-    if (kind === 'pro') return ({ ...common, ZL: 'ZL', ZR: 'ZR', CAPT: 'CAPTURE' })[name];
-    return ({ A: 'EAST', B: 'SOUTH', X: 'NORTH', Y: 'WEST', ...common })[name];
-  };
-  const svgCache = new Map();
-  async function controllerSVG(kind) {
-    const file = controllerAsset(kind);
-    if (!svgCache.has(file)) svgCache.set(file, fetch(`assets/controllers/${file}.svg`).then(r => { if (!r.ok) throw new Error(`SVG ${file}: ${r.status}`); return r.text(); }).then(svg => svg.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '').replace('class="hardware"', 'class="hardware test-hardware"')));
-    return svgCache.get(file);
-  }
-  async function controllerTestArt(members, horizontal = false) {
-    const kinds = members.length === 2 ? ['left', 'right'] : [members[0]?.kind || 'pro'];
-    return `<div class="hardware-set ${members.length === 2 ? 'pair' : ''} ${horizontal ? 'joy-horizontal' : ''}">${(await Promise.all(kinds.map(controllerSVG))).join('')}</div>`;
-  }
-  function highlightVirtual(sample) {
-    const map = virtualKeyMap[virtualKind];
-    const root = el('test-output-controller');
-    if (!map || !root) return;
-    root.querySelectorAll('.control[data-key]').forEach(node => {
-      const key = node.dataset.key;
-      let pressed = Boolean(sample.buttons & (map[key] || 0));
-      if (key === 'L2' || key === 'ZL') pressed = sample.lt > 0;
-      if (key === 'R2' || key === 'ZR') pressed = sample.rt > 0;
-      if (key === 'CAPTURE') pressed = (sample.mapped || sample.pressed || []).includes('CAPT');
-      if (key === 'MUTE') pressed = (sample.mapped || sample.pressed || []).includes('MUTE');
-      node.classList.toggle('is-pressed', pressed);
-    });
-  }
-
-  function showInput(sample) {
-    Object.entries(buttonIds).forEach(([id, bit]) => { const node = el(`pad-${id}`); if (node) node.classList.toggle('active', Boolean(sample.buttons & bit)); });
-    const leftStick = el('stick-left');
-    const rightStick = el('stick-right');
-    if (leftStick) leftStick.parentElement.classList.toggle('active', Boolean(sample.buttons & 0x0040));
-    if (rightStick) rightStick.parentElement.classList.toggle('active', Boolean(sample.buttons & 0x0080));
-    const pressed = (sample.pressed || []).slice().sort((a, b) => (physicalOrder.indexOf(a) + 99) % 99 - (physicalOrder.indexOf(b) + 99) % 99);
-    const physicalNames = ui.testKind === 'ds' ? { Y: 'Square', X: 'Triangle', B: 'Cross', A: 'Circle', L: 'L1', R: 'R1', ZL: 'L2', ZR: 'R2', MINUS: 'Create', PLUS: 'Options', HOME: 'PS', MUTE: 'Mute', PS_C_Click: 'Clique do touchpad' } : {};
-    el('touch-test').hidden = ui.testKind !== 'ds';
-    const touches = (sample.touch || []).filter(point => point.active);
-    el('touch-values').value = touches.length ? touches.map(point => `#${point.id}: ${point.x}, ${point.y}`).join(' · ') : 'Sem contato';
-    [0, 1].forEach(i => { const dot = el(`touch-point-${i}`); const point = (sample.touch || [])[i]; dot.toggleAttribute('hidden', !point?.active); if (point?.active) { dot.setAttribute('cx', Math.max(0, Math.min(1919, point.x))); dot.setAttribute('cy', Math.max(0, Math.min(1079, point.y))); } });
-    all('#test-controller .control[data-key]').forEach(node => node.classList.toggle('is-pressed', pressed.some(name => physicalKey(name, ui.testKind) === node.dataset.key)));
-    const physicalLT = sample.analog ? sample.plt : sample.lt;
-    const physicalRT = sample.analog ? sample.prt : sample.rt;
-    all('#test-controller .control[data-key="L2"], #test-controller .control[data-key="R2"]').forEach(node => node.classList.toggle('is-pressed', (node.dataset.key === 'L2' ? physicalLT : physicalRT) > 0));
-    const pair = ui.testKind === 'joy-pair';
-    const sticks = pair ? (sample.physicalKind === 1 ? [['LS', sample.plx, sample.ply]] : sample.physicalKind === 2 ? [['RS', sample.prx, sample.pry]] : [])
-      : ui.testKind === 'left' ? [['LS', sample.plx, sample.ply]] : ui.testKind === 'right' ? [['RS', sample.prx, sample.pry]]
-      : [['LS', sample.plx, sample.ply], ['RS', sample.prx, sample.pry]];
-    sticks.forEach(([key, x, y]) => all(`#test-controller [data-key="${key}"]`).forEach(node => { node.style.transformBox = 'fill-box'; node.style.transformOrigin = 'center'; node.style.transform = `translate(${x * 24}px,${-y * 24}px)`; }));
-    all('#test-shoulders [data-input]').forEach(node => node.classList.toggle('is-active', pressed.some(name => physicalKey(name, ui.testKind) === physicalKey(node.dataset.input, ui.testKind))));
-    all('#test-shoulders [data-trigger]').forEach(node => node.classList.toggle('is-active', (node.dataset.trigger === 'lt' ? physicalLT : physicalRT) > 0));
-    el('pressed-values').value = pressed.length ? pressed.map(name => physicalNames[name] || physicalLabels[name] || name.replace(/_/g, ' ')).join(' · ') : '—';
-    if (leftStick) leftStick.style.transform = `translate(${sample.lx * 14}px,${-sample.ly * 14}px)`;
-    if (rightStick) rightStick.style.transform = `translate(${sample.rx * 14}px,${-sample.ry * 14}px)`;
-    highlightVirtual(sample);
-    el('left-values').value = `X ${number(sample.lx)} · Y ${number(sample.ly)}`;
-    el('right-values').value = `X ${number(sample.rx)} · Y ${number(sample.ry)}`;
-    [['l', sample.lt], ['r', sample.rt]].forEach(([side, raw]) => {
-      const value = Math.round(raw / 255 * 100);
-      el(`trigger-${side}`).value = value; el(`trigger-${side}-value`).value = `${value}%${sample.analog ? '' : ' · digital'}`;
-    });
-    el('gyro-values').value = ui.testKind === 'ds' && !sample.motionCalibrated ? 'Calibração indisponível' : sample.gyro.map(v => number(v, 1)).join(' · ');
-    if (!inputNoteUntil || Date.now() > inputNoteUntil) { inputNoteUntil = 0; el('input-state').textContent = 'Recebendo entradas.'; }
-  }
-  let inputNoteUntil = 0;
-  // A short message (e.g. after Vibrar) that live input doesn't overwrite.
-  function inputNote(text) { el('input-state').textContent = text; inputNoteUntil = Date.now() + 2500; }
-  function resetInput() { showInput({ buttons: 0, pressed: [], lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0, analog: false, gyro: [0, 0, 0] }); el('input-state').textContent = 'Aguardando entradas.'; }
-  function stopStream() { inputStream?.close(); inputStream = null; }
-  function closeTest() {
-    stopStream();
-    const player = ui.testing;
-    ui.testing = null;
-    if (el('test-dialog').open) el('test-dialog').close();
-    document.querySelector(`[data-test="${player}"]`)?.focus();
-  }
-  async function openTest(player) {
-    stopStream(); ui.testing = player;
-    const slot = snap.players.find(p => p.player === player);
-    const kinds = slot?.members.map(m => m.kind) || [];
-    ui.testKind = kinds.length === 2 ? 'joy-pair' : kinds[0] || '';
-    resetInput();
-    const horizontal = kinds.length === 1 && ['left', 'right'].includes(kinds[0]) && holdMode(slot.members[0]) === 'Horizontal';
-    const deviceName = slot?.members.length === 2 ? 'Par de Joy-Cons' : slot?.members[0]?.name || slot?.name || 'Controle';
-    el('test-title').textContent = `Teste de entrada · ${deviceName}`;
-    el('test-device-name').textContent = deviceName;
-    el('test-shoulders').innerHTML = testShoulders(kinds);
-    el('test-controller').innerHTML = await controllerTestArt(slot?.members || [], horizontal);
-    el('test-controller').className = `test-controller ${kinds.length === 2 ? 'joy-pair' : kinds[0] || ''}${horizontal ? ' joy-horizontal' : ''}`;
-    // Running output remaps (applied config), so the test proves them.
-    const remaps = (slot?.activeRemaps || []).map(r => `${r.source} → ${r.target === 'None' ? 'Sem ação' : r.target}`);
-    el('test-mapping').textContent = mappingText(slot) + (remaps.length ? ` · Remapeado: ${remaps.join(', ')}` : '');
-    await renderVirtualOutput(slot);
-    inputStream = new EventSource(`/api/players/${player}/input`);
-    inputStream.addEventListener('input', event => showInput(JSON.parse(event.data)));
-    inputStream.onerror = () => { if (ui.testing === player) el('input-state').textContent = 'Sem entradas: o controle desconectou?'; };
-    el('test-dialog').showModal();
-  }
-  let virtualKind = 'xbox';
-  const virtualKeyMap = {
-    dualsense: {
-      SOUTH: 0x1000, EAST: 0x2000, WEST: 0x4000, NORTH: 0x8000,
-      L1: 0x0100, R1: 0x0200, SELECT: 0x0020, START: 0x0010, HOME: 0x0400,
-      UP: 0x0001, DOWN: 0x0002, LEFT: 0x0004, RIGHT: 0x0008,
-      LS: 0x0040, RS: 0x0080,
-    },
-    switch: {
-      SOUTH: 0x1000, EAST: 0x2000, WEST: 0x4000, NORTH: 0x8000,
-      L: 0x0100, R: 0x0200, SELECT: 0x0020, START: 0x0010, HOME: 0x0400,
-      UP: 0x0001, DOWN: 0x0002, LEFT: 0x0004, RIGHT: 0x0008,
-      LS: 0x0040, RS: 0x0080,
-    },
-  };
-
-  async function renderVirtualOutput(slot) {
-    const effective = slot?.outputKind || 'none';
-    const requested = slot?.outputOverrideKind || effective;
-    virtualKind = requested === 'auto' ? effective : requested;
-    const root = el('test-output-controller');
-    const labels = {
-      xbox: { heading: 'Xbox 360', l: 'LB', r: 'RB', back: 'Back', guide: '\u2302', start: 'Start', y: 'Y', x: 'X', b: 'B', a: 'A' },
-      dualsense: { heading: 'DualSense' },
-      switch: { heading: 'Switch Pro' },
-      none: { heading: 'Sem saída virtual' },
-    };
-    const set = labels[virtualKind] || labels.none;
-    const unavailable = requested !== effective && effective === 'none' ? ' (indisponível)' : '';
-    el('test-output-heading').textContent = `Saída virtual · ${set.heading}${unavailable}`;
-    el('test-output-heading').dataset.kind = virtualKind;
-
-    if (virtualKind === 'none') {
-      root.className = 'input-pad';
-      root.innerHTML = '<div class="virtual-empty">Sem saída virtual: os jogos não recebem um controle virtual neste player.</div>';
-      return;
-    }
-    if (virtualKind === 'xbox') {
-      root.className = 'input-pad';
-      root.innerHTML = xboxPadHTML;
-      el('pad-l').textContent = set.l;
-      el('pad-r').textContent = set.r;
-      el('pad-back').textContent = set.back;
-      el('pad-guide').textContent = set.guide;
-      el('pad-start').textContent = set.start;
-      el('pad-y').textContent = set.y;
-      el('pad-x').textContent = set.x;
-      el('pad-b').textContent = set.b;
-      el('pad-a').textContent = set.a;
-      return;
-    }
-
-    const file = virtualKind === 'switch' ? 'pro' : 'ds';
-    let svg = await controllerSVG(file);
-    if (virtualKind === 'switch') {
-      // The virtual target is a Switch 1 Pro Controller (057E:2009), which has
-      // Capture but not the Switch 2 Chat/C button present in the shared art.
-      svg = svg.replace(/<g class="control" data-key="TOUCH"[\s\S]*?<\/g>/, '');
-    }
-    svg = svg.replace(/id="([^"]+)"/g, 'id="vo-$1"').replace(/url\(#([^)]+)\)/g, 'url(#vo-$1)');
-    root.className = 'input-pad virtual-hardware';
-    root.innerHTML = `<div class="hardware-set virtual-set">${svg}</div>`;
-  }
-
-  function mappingText(slot) {
-    const members = slot?.members || [];
-    const outputKind = slot?.outputOverrideKind || slot?.outputKind || 'none';
-    if (outputKind === 'dualsense') {
-      return 'Posicional: B/A/Y/X → Cross/Circle/Square/Triangle · L/R → L1/R1 · ZL/ZR → L2/R2 · touch e movimento são repassados.';
-    }
-    if (outputKind === 'switch') {
-      return 'Posicional: B/A/Y/X → B/A/Y/X · L/R → L/R · ZL/ZR → ZL/ZR · movimento via IMU.';
-    }
-    if (outputKind === 'none') {
-      return 'Sem saída virtual: os botões vão apenas para o DSU.';
-    }
-    const kinds = members.map(member => member.kind);
-    const kind = kinds.length === 2 ? 'joy-pair' : kinds[0] || '';
-    const byLabel = (draft?.layout || snap.config.layout) === 'Switch';
-    const standardFaces = byLabel ? 'A → A · B → B · X → X · Y → Y' : 'A → B · B → A · X → Y · Y → X';
-    if (kind === 'ds') {
-      return 'Cross → A · Circle → B · Square → X · Triangle → Y · L1/R1 → LB/RB · L2/R2 → LT/RT';
-    }
-    if (kind === 'gc') return byLabel
-      ? 'A → A · B → B · X → X · Y → Y · Z → RT'
-      : 'A → A · B → X · X → B · Y → Y · Z → RT';
-    if (kind === 'joy-pair') return `Par combinado · L/R → LB/RB · ZL/ZR → LT/RT · ${standardFaces}`;
-    if (kind === 'left' || kind === 'right') {
-      const member = members[0];
-      const hold = holdMode(member);
-      const sideways = hold === 'Horizontal';
-      if (kind === 'left') {
-        const directions = sideways
-          ? (byLabel ? '↑/↓/←/→ → Y/A/B/X' : '↑/↓/←/→ → X/B/A/Y')
-          : (byLabel ? '↑/↓/←/→ → X/B/Y/A' : '↑/↓/←/→ → Y/A/X/B');
-        const shoulders = sideways ? 'SL/SR → LT/RT' : 'L → LB · ZL → LT';
-        return `Joy-Con ${sideways ? 'horizontal' : 'vertical'} · ${shoulders} · ${directions}`;
-      }
-      const faces = sideways
-        ? (byLabel ? 'A/B/X/Y → B/Y/A/X' : 'A/B/X/Y → A/X/B/Y')
-        : standardFaces;
-      const shoulders = sideways ? 'SL/SR → LT/RT' : 'R → RB · ZR → RT';
-      return `Joy-Con ${sideways ? 'horizontal' : 'vertical'} · ${shoulders} · ${faces}`;
-    }
-    return `L/R → LB/RB · ZL/ZR → LT/RT · ${standardFaces}`;
-  }  function testShoulders(kinds) {
-    // Joy-Con shoulder inputs are drawn on each physical controller. A second
-    // row of floating L/R/ZL/ZR pills made them look detached and duplicated.
-    if (kinds.length && kinds.every(kind => kind === 'left' || kind === 'right')) return '';
-    let left = [['L', 'L'], ['ZL', 'ZL']];
-    let right = [['R', 'R'], ['ZR', 'ZR']];
-    if (kinds[0] === 'ds') {
-      left = [['L', 'L1'], ['lt', 'L2']]; right = [['R', 'R1'], ['rt', 'R2']];
-    } else if (kinds[0] === 'gc') {
-      left = [['L', 'L'], ['lt', 'L2']]; right = [['R', 'R'], ['rt', 'R2'], ['GC_R_CLICK', 'Z']];
-    } else if (kinds.length === 1 && kinds[0] === 'left') {
-      right = [];
-    } else if (kinds.length === 1 && kinds[0] === 'right') {
-      left = [];
-    }
-    const group = (side, entries) => `<div class="shoulder-side ${side}">${entries.map(([key, label]) => key === 'lt' || key === 'rt' ? `<span data-trigger="${key}">${label}</span>` : `<span data-input="${key}">${label}</span>`).join('')}</div>`;
-    return group('left', left) + group('right', right);
-  }
-  el('test-dialog').addEventListener('close', () => { if (ui.testing !== null) { stopStream(); ui.testing = null; } });
 
   // --- Settings -----------------------------------------------------------------
   function validate(node) {
@@ -546,7 +312,7 @@
     }, delay);
   }
   async function restart() {
-    try { await api('/api/restart', { method: 'POST' }); closeTest(); announce('Conexões reiniciadas. Pressione um botão nos controles para reconectar.'); } catch (error) { announce(`Não foi possível reiniciar: ${error.message}`, true); }
+    try { await api('/api/restart', { method: 'POST' }); window.pad2go.closeTest?.(); announce('Conexões reiniciadas. Pressione um botão nos controles para reconectar.'); } catch (error) { announce(`Não foi possível reiniciar: ${error.message}`, true); }
   }
 
   // --- Diagnostics ------------------------------------------------------------------
@@ -586,16 +352,12 @@
     else if (button.id === 'accept-foreign') { draft.foreign = true; clearTimeout(saveTimer); try { snap = await api('/api/config', { method: 'PUT', body: draft }); await restart(); } catch (error) { announce(`Não foi possível salvar: ${error.message}`, true); } }
     else if (button.id === 'apply-config' || button.hasAttribute('data-retry')) await restart();
     else if (button.dataset.detail) { const player = Number(button.dataset.detail); ui.detail = ui.detail === player ? null : player; render(); document.querySelector(`[data-detail="${player}"]`)?.focus(); }
-    else if (button.dataset.test) openTest(Number(button.dataset.test));
-    else if (button.id === 'close-test') closeTest();
+    else if (button.dataset.test) window.pad2go.openTest?.(Number(button.dataset.test));
     else if (button.dataset.disconnect) {
       const player = Number(button.dataset.disconnect);
       try { await api(`/api/players/${player}/disconnect`, { method: 'POST' }); ui.detail = null; announce(`Jogador ${player} desconectado. Os demais mantêm seus números.`); } catch (error) { announce(`Não foi possível desconectar: ${error.message}`, true); }
     }
     else if (button.dataset.layout) { draft.layout = button.dataset.layout; render(); save(); }
-    else if (button.id === 'rumble') {
-      try { await api(`/api/players/${ui.testing}/rumble`, { method: 'POST' }); inputNote('Vibração enviada ao controle.'); } catch (error) { inputNote(`Não foi possível vibrar: ${error.message}`); }
-    }
     else if (button.id === 'copy-address') { const address = snap.dsu.address; try { await navigator.clipboard.writeText(address); el('copy-result').textContent = `Copiado: ${address}`; } catch { el('copy-result').textContent = `Copie: ${address}`; } }
     else if (button.dataset.help) showHelp(button);
     else if (button.id === 'check-system') { await diagnose(); announce('Verificação concluída.'); }
@@ -640,7 +402,6 @@
     events.addEventListener('toast', event => notifyConnection(JSON.parse(event.data)));
     events.onerror = () => { el('offline').hidden = false; el('sidebar-status').textContent = 'Sem conexão'; };
   }
-  window.addEventListener('beforeunload', stopStream);
   // Refresh diagnostics while a DualSense is connected. HID does not expose RSSI
   // or reports lost before reaching Windows, so these are receive counts only.
   setInterval(async () => {
