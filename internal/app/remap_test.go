@@ -42,7 +42,7 @@ func TestOutputRemapAppliedToXbox(t *testing.T) {
 	// Switch B is the bottom button and maps to Xbox A by position. The remap
 	// turns it into protocol A first, which maps to Xbox B.
 	d.send(centered(protocol.BtnB))
-	pads := recs["vigem"].Snapshot()
+	pads := xboxRecorder(recs).Snapshot()
 	if len(pads) != 1 {
 		t.Fatalf("%d pads", len(pads))
 	}
@@ -60,7 +60,7 @@ func TestOutputRemapToTrigger(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.send(centered(protocol.BtnB))
-	st, _ := recs["vigem"].Snapshot()[0].State()
+	st, _ := xboxRecorder(recs).Snapshot()[0].State()
 	if st.Buttons != 0 || st.LeftTrigger != 255 {
 		t.Fatalf("state %+v", st)
 	}
@@ -78,7 +78,7 @@ func TestOutputRemapPerOutputOverridesGlobal(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.send(centered(protocol.BtnB))
-	if st, _ := recs["vigem"].Snapshot()[0].State(); st.Buttons != 0 {
+	if st, _ := xboxRecorder(recs).Snapshot()[0].State(); st.Buttons != 0 {
 		t.Fatalf("buttons %04x, want none", st.Buttons)
 	}
 }
@@ -192,7 +192,7 @@ func TestOutputRemapKeepsDefaultMapping(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.send(centered(protocol.BtnA | protocol.BtnZL))
-	st, _ := recs["vigem"].Snapshot()[0].State()
+	st, _ := xboxRecorder(recs).Snapshot()[0].State()
 	if st.Buttons != mapping.XBB || st.LeftTrigger != 255 {
 		t.Fatalf("state %+v", st)
 	}

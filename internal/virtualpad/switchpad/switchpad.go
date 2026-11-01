@@ -90,7 +90,7 @@ var identities = struct {
 
 // Open starts a virtual Pro Controller and submits its neutral 0x30 report.
 func Open(opts Options) (*Device, error) {
-	if !supportedPlatform(runtime.GOOS, runtime.GOARCH) {
+	if opts.Host == nil && !supportedPlatform(runtime.GOOS, runtime.GOARCH) {
 		return nil, hidpad.ErrUnsupported
 	}
 	id, err := reserveID(opts.ID)

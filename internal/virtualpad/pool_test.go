@@ -30,10 +30,13 @@ func (poolTestPad) Update(mapping.XboxState) error { return nil }
 func (poolTestPad) Close() error                   { return nil }
 
 func xboxKey() string {
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		return "vigem"
+	case "linux":
+		return "uinput"
 	}
-	return "uinput"
+	return "xbox"
 }
 
 func TestPoolCachesBackendAndNames(t *testing.T) {

@@ -6,6 +6,7 @@ package virtualpad
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 
 	"github.com/patrickdeangelis/pad2go/internal/mapping"
@@ -63,6 +64,9 @@ func Open(kind string) (Backend, error) {
 			return nil, fmt.Errorf("virtual gamepad output unavailable (%w); set output: none to run motion-only", err)
 		}
 		return b, nil
+	case "xbox":
+		// Only the pool asks for "xbox", on platforms with no Xbox backend.
+		return nil, fmt.Errorf("no Xbox 360 output on %s", runtime.GOOS)
 	case "vigem", "uinput":
 		if platformName != kind {
 			return nil, fmt.Errorf("output %q is not available on this platform", kind)

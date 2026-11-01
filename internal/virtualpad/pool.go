@@ -5,7 +5,6 @@ package virtualpad
 
 import (
 	"fmt"
-	"runtime"
 	"sync"
 )
 
@@ -28,7 +27,7 @@ type Pool struct {
 }
 
 // NewPool creates a pool. open receives the platform key ("vigem", "uinput",
-// "dualsense", "switch" or "none").
+// "dualsense", "switch" or "none"; "xbox" where no Xbox backend exists).
 func NewPool(open func(string) (Backend, error)) *Pool {
 	return &Pool{open: open, backends: map[string]Backend{}}
 }
@@ -36,14 +35,10 @@ func NewPool(open func(string) (Backend, error)) *Pool {
 func backendKey(kind string) (string, error) {
 	switch kind {
 	case OutputXbox:
-		switch runtime.GOOS {
-		case "windows":
-			return "vigem", nil
-		case "linux":
-			return "uinput", nil
-		default:
-			return "", fmt.Errorf("no Xbox 360 output on %s", runtime.GOOS)
+		if platformName == "" {
+			return OutputXbox, nil
 		}
+		return platformName, nil
 	case OutputDualSense:
 		return "dualsense", nil
 	case OutputSwitch:
