@@ -127,7 +127,7 @@
         : escape(slot.output);
       return `<div class="row device-row" data-player="${slot.player}">
           <div class="device-icon" aria-hidden="true"><div class="art">${art(slot.members)}</div></div>
-          <div class="row-label"><span>Jogador ${slot.player} · ${escape(slot.name)}</span><small class="device-meta"><span class="status ${low || warning ? 'warning' : 'on'}">${status}</span><span class="output-pill">${outputPill}${slot.outputOverride ? ' · manual' : ''}</span>${batteries}${leds(slot.player, slot.members[0]?.kind)}</small></div>
+          <div class="row-label"><span>Jogador ${slot.player} · ${escape(slot.name)}</span><small class="device-meta"><span class="status ${low || warning ? 'warning' : 'on'}">${status}</span><span class="output-pill">${outputPill}${slot.outputOverride ? ' · manual' : ''}</span>${playerIssue}${batteries}${leds(slot.player, slot.members[0]?.kind)}</small></div>
           <div class="row-control"><select class="player-output" data-player-output="${slot.player}" title="Saída: ${escape(slot.output)}" aria-label="Saída do jogador ${slot.player}"><option value="auto">Padrão</option><option value="xbox">Xbox</option><option value="dualsense">DualSense</option><option value="switch">Switch Pro</option><option value="none">Sem saída</option></select><button type="button" class="push" data-test="${slot.player}">Testar</button><button type="button" class="info-button" data-detail="${slot.player}" aria-expanded="${open}" aria-label="Detalhes do jogador ${slot.player}" title="Detalhes">${icon('info')}</button></div>
         </div>${open ? `<div class="device-details">
           <span>${slot.members.map(m => `${escape(m.transport || (m.kind === 'ds' ? 'USB' : 'Bluetooth LE'))} · ${escape(m.addr)}`).join(' · ')}</span>
@@ -141,6 +141,7 @@
     all('[data-player-output]').forEach(node => {
       const slot = players.find(p => p.player === Number(node.dataset.playerOutput));
       node.value = slot?.outputOverrideKind || 'auto';
+      if (snap.platform === 'macOS') [...node.options].forEach(option => { if (['xbox', 'dualsense', 'switch'].includes(option.value)) option.disabled = true; });
     });
   }
 
@@ -239,9 +240,9 @@
     el('apply-config').disabled = snap.restarting;
     el('apply-config').textContent = snap.restarting ? 'Reiniciando…' : 'Reiniciar conexões';
     el('platform-notice').hidden = !mac;
-    [...el('backend').options].forEach(option => { option.disabled = option.value === 'vigem' && snap.platform !== 'Windows' || option.value === 'uinput' && snap.platform !== 'Linux' || (option.value === 'dualsense' || option.value === 'switch' || option.value === 'xbox') && snap.platform === 'macOS'; });
+    ['output-default', ...all('[data-player-output]')].forEach(select => [...select.options].forEach(option => { if (snap.platform === 'macOS' && ['xbox', 'dualsense', 'switch'].includes(option.value)) option.disabled = true; }));
     el('host-mac').placeholder = mac ? 'Necessário para parear' : 'Detectar automaticamente';
-    el('output-default').value = snap.output.default;
+    el('output-default').value = ['vigem', 'uinput'].includes(snap.output.default) ? 'xbox' : snap.output.default;
     const apply = el('apply-output');
     apply.disabled = !snap.players.length;
     apply.title = 'Aplicar aos players atuais (mantém escolhas manuais)';
@@ -256,9 +257,13 @@
     const fault = snap.fault;
     el('system-alert').hidden = !fault;
     if (fault) {
-      const title = fault.kind === 'bluetooth' ? 'O Bluetooth não está disponível' : fault.kind === 'output' ? 'Sem saida virtual: os jogos não veem os controles' : 'Problema na configuração';
-      const reason = fault.kind === 'bluetooth' ? mac ? 'O macOS ainda não permitiu que o Pad2Go use o Bluetooth, ou o Bluetooth está desligado.' : 'Ligue o Bluetooth e confira se há um adaptador compatível com Bluetooth LE.' : fault.kind === 'output' ? snap.platform === 'Windows' ? 'Os controles conectam e podem ser testados, mas falta um backend de saida. Xbox 360 exige um build com cgo e ViGEmBus; DualSense/Switch exigem WinUHid (Windows) ou /dev/uhid (Linux).' : mac ? 'No macOS não há controle virtual: escolha “Automática” ou “Somente movimento” em Ajustes → Conexão → Saída.' : 'Confira o acesso a /dev/uinput.' : '';
-      el('system-alert').innerHTML = `<strong>${title}</strong><span>${reason} <span class="technical">(${escape(fault.message)})</span></span><div class="banner-actions"><button type="button" class="push" data-retry>${snap.restarting ? 'Tentando…' : 'Tentar novamente'}</button><button type="button" class="link" data-help="${fault.kind === 'bluetooth' ? 'bluetooth' : 'output'}">Como resolver</button></div>`;
+      const outputFault = fault.kind === 'output';
+      const title = fault.kind === 'bluetooth' ? 'O Bluetooth n?o est? dispon?vel' : outputFault ? 'Sem sa?da virtual: os jogos n?o veem os controles' : 'Problema na configura??o';
+      const reason = fault.kind === 'bluetooth' ? mac ? 'O macOS ainda n?o permitiu que o Pad2Go use o Bluetooth, ou o Bluetooth est? desligado.' : 'Ligue o Bluetooth e confira se h? um adaptador compat?vel com Bluetooth LE.' : '';
+      const outputReasons = Array.isArray(fault.reasons) && fault.reasons.length ? fault.reasons : [snap.platform === 'Windows' ? 'Os controles conectam e podem ser testados, mas falta uma sa?da virtual.' : mac ? 'No macOS n?o h? controle virtual: escolha ?Autom?tica? ou ?Somente movimento?.' : 'Confira o acesso a /dev/uinput.'];
+      const body = outputFault ? outputReasons.map(line => `<span>${escape(line)}</span>`).join('') : `<span>${reason}</span>`;
+      const actions = outputFault ? `<button type="button" class="push primary" data-help="output">Como resolver</button><button type="button" class="push" data-retry>${snap.restarting ? 'Tentando?' : 'Tentar novamente'}</button><span>depois de instalar</span>` : `<button type="button" class="push" data-retry>${snap.restarting ? 'Tentando?' : 'Tentar novamente'}</button><button type="button" class="link" data-help="bluetooth">Como resolver</button>`;
+      el('system-alert').innerHTML = `<strong>${title}</strong>${body}<div class="banner-actions">${actions}</div>`;
     }
     el('connect').disabled = false;
     const busy = snap.discovery.step >= 1 && snap.discovery.step < 4 && !snap.discovery.failure && !snap.discovery.foreign;
@@ -543,7 +548,7 @@
   // --- Diagnostics ------------------------------------------------------------------
   const help = {
     bluetooth: () => snap.platform === 'macOS' ? 'Na primeira execução o macOS pergunta se o Pad2Go pode usar o Bluetooth: clique em Permitir. Se você recusou, ative o Pad2Go em Ajustes do Sistema → Privacidade e Segurança → Bluetooth. Confira se o Bluetooth está ligado e clique em “Tentar novamente”.' : 'Ligue o Bluetooth nas configurações do computador e confirme que há um adaptador compatível com Bluetooth LE. Depois, clique em “Tentar novamente”.',
-    output: () => snap.config.backend === 'dualsense' || snap.config.backend === 'switch' ? `A saida ${snap.config.backend === 'switch' ? 'Switch Pro' : 'DualSense'} virtual precisa do driver <a href="https://github.com/cgutman/WinUHid" target="_blank" rel="noreferrer">WinUHid</a> no Windows, ou de /dev/uhid no Linux. Instale o driver e clique em Tentar novamente. Em emuladores de Switch, escolha o controle como Pro Controller no driver SDL2; se o jogo detectar entradas duplicadas, use o HidHide para ocultar o controle fisico.` : snap.platform === 'macOS' ? 'O macOS não permite criar controles virtuais. Em Ajustes → Conexão → Saída, escolha “Automática” ou “Somente movimento” e reinicie as conexões; o movimento continua disponível para emuladores via DSU.' : snap.platform === 'Windows' ? 'O instalador do Pad2Go já instala o ViGEmBus. Se você usou o pad2go.exe avulso, instale o <a href="https://github.com/nefarius/ViGEmBus/releases/latest" target="_blank" rel="noreferrer">ViGEmBus 1.22</a> e clique em Tentar novamente. Se o jogo detectar entradas duplicadas, use o <a href="https://github.com/nefarius/HidHide" target="_blank" rel="noreferrer">HidHide</a> para ocultar o controle físico.' : 'Carregue o módulo com <code>sudo modprobe uinput</code>, confira se /dev/uinput existe e dê acesso ao seu usuário com uma regra udev.',
+    output: () => snap.config.backend === 'dualsense' || snap.config.backend === 'switch' ? `A sa?da ${snap.config.backend === 'switch' ? 'Switch Pro' : 'DualSense'} virtual precisa do driver <a href="https://github.com/cgutman/WinUHid" target="_blank" rel="noreferrer">WinUHid</a> no Windows, ou de /dev/uhid no Linux. Instale o driver e clique em Tentar novamente. Em emuladores de Switch, escolha o controle como Pro Controller no driver SDL2; se o jogo detectar entradas duplicadas, use o HidHide para ocultar o controle f?sico.` : snap.platform === 'macOS' ? 'O macOS não permite criar controles virtuais. Em Ajustes → Conexão → Saída, escolha “Automática” ou “Somente movimento” e reinicie as conexões; o movimento continua disponível para emuladores via DSU.' : snap.platform === 'Windows' ? 'O instalador do Pad2Go já instala o ViGEmBus. Se você usou o pad2go.exe avulso, instale o <a href="https://github.com/nefarius/ViGEmBus/releases/latest" target="_blank" rel="noreferrer">ViGEmBus 1.22</a> e clique em Tentar novamente. Se o jogo detectar entradas duplicadas, use o <a href="https://github.com/nefarius/HidHide" target="_blank" rel="noreferrer">HidHide</a> para ocultar o controle físico.' : 'Carregue o módulo com <code>sudo modprobe uinput</code>, confira se /dev/uinput existe e dê acesso ao seu usuário com uma regra udev.',
     mac: () => 'Informe o endereço Bluetooth do computador em Ajustes → Conexão. Sem ele a conexão funciona, mas o pareamento para reconectar com um toque não é salvo.',
   };
   function showHelp(button) {
@@ -552,6 +557,7 @@
     if (old) { old.remove(); return; }
     const paragraph = document.createElement('p'); paragraph.className = 'help'; paragraph.dataset.for = button.dataset.help;
     paragraph.innerHTML = help[button.dataset.help]();
+    if (button.dataset.help === 'output') paragraph.innerHTML += `<div class="technical">Detalhe t?cnico: ${escape(snap.fault?.message || '')}</div>`;
     host.after(paragraph);
   }
   async function diagnose() {

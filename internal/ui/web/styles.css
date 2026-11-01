@@ -159,7 +159,7 @@ button { cursor: default; }
 .sidebar-items button .icon { color: var(--accent); }
 .sidebar-items button[aria-selected='true'] { background: var(--accent); color: var(--on-accent); }
 .sidebar-items button[aria-selected='true'] .icon { color: inherit; }
-.sidebar-footer { margin-top: auto; padding: 0 8px; font-size: 11px; color: var(--tertiary); }
+.sidebar-footer { margin-top: auto; padding: 0 8px; font-size: 11px; color: var(--secondary); }
 .badge { margin-left: auto; font-size: 11px; font-weight: 600; min-width: 18px; padding: 0 6px; border-radius: 9px; text-align: center; background: color-mix(in srgb, var(--label) 12%, transparent); }
 [aria-selected='true'] .badge { background: rgba(255, 255, 255, .25); }
 
@@ -273,7 +273,7 @@ input[type='range'], progress { accent-color: var(--accent); }
 .remap-field { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 6px 14px; background: var(--group-bg); }
 .remap-source { flex: 1; min-width: 0; display: grid; gap: 1px; }
 .remap-source label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.remap-source small { color: var(--tertiary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remap-source small { color: var(--secondary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .remap-field select { flex: none; width: 138px; }
 
 
@@ -283,7 +283,7 @@ input[type='range'], progress { accent-color: var(--accent); }
 .banner span, .banner p { color: var(--secondary); font-size: 12px; }
 .banner.error { background: color-mix(in srgb, var(--danger) 12%, var(--content-bg)); }
 .banner.error strong { color: var(--danger); }
-.technical { color: var(--tertiary); }
+.technical { color: var(--secondary); }
 .banner-actions { display: flex; gap: 14px; align-items: center; margin-top: 6px; justify-self: start; }
 .link { appearance: none; border: 0; background: none; padding: 0; color: var(--accent); font-size: 12px; }
 .help { color: var(--secondary); font-size: 12px; line-height: 1.5; padding: 0 14px 12px 46px; }
@@ -341,7 +341,7 @@ input[type='range'], progress { accent-color: var(--accent); }
 
 /* Connection progress. */
 .steps { display: flex; gap: 4px; list-style: none; padding: 0; margin: 0; width: 100%; }
-.steps li { flex: 1; font-size: 11px; color: var(--tertiary); padding-top: 6px; border-top: 3px solid color-mix(in srgb, var(--label) 12%, transparent); border-radius: 1px; }
+.steps li { flex: 1; font-size: 11px; color: var(--secondary); padding-top: 6px; border-top: 3px solid color-mix(in srgb, var(--label) 12%, transparent); border-radius: 1px; }
 .steps .done { color: var(--secondary); border-color: var(--success); }
 .howto .row-label { gap: 6px; }
 .howto ol { margin: 2px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.5; color: var(--secondary); }
