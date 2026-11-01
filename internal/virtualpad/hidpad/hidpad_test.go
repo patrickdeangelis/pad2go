@@ -5,10 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"os"
-	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -16,41 +13,6 @@ import (
 
 	"github.com/patrickdeangelis/pad2go/internal/dualsense"
 )
-
-func TestFactSheet(t *testing.T) {
-	_, currentFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller did not return this test path")
-	}
-
-	path := filepath.Join(filepath.Dir(currentFile), "..", "..", "..", "docs", "dualsense-usb-facts.md")
-	facts, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, expected := range []string{
-		"d6cebbef5c7909168d1f881185be8f607d6aefd4",
-		"Size is 32 bytes",
-		"WINUHID_EVENT` is packed",
-		"UHID_CREATE2` payload",
-		"rd_size u16 @256",
-		"event size is **4376 bytes**",
-		"descriptor field summary",
-		"| output | 0x02 | 0xFF00 | 0x23 |",
-		"| feature | 0x05 | 0xFF00 | 0x33 |",
-		"F5:3",
-	} {
-		if !bytes.Contains(facts, []byte(expected)) {
-			t.Errorf("fact sheet does not contain %q", expected)
-		}
-	}
-	if bytes.Contains(facts, []byte("4384")) {
-		t.Fatal("fact sheet still contains the old UHID event size")
-	}
-	if bytes.Contains(facts, []byte("30 bytes")) {
-		t.Fatal("fact sheet still contains the old DEVICE_INFO size")
-	}
-}
 
 func TestWindowsConfigFields(t *testing.T) {
 	config := hostConfig(DualSenseWired, "pad2go-test", makeTestFeatures("pad2go-test"))

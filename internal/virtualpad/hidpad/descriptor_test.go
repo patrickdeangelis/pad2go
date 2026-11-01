@@ -144,7 +144,7 @@ func TestDescriptorFieldSummary(t *testing.T) {
 	if !ok {
 		t.Fatal("runtime.Caller did not return this test path")
 	}
-	factPath := filepath.Join(filepath.Dir(currentFile), "..", "..", "..", "docs", "dualsense-usb-facts.md")
+	factPath := filepath.Join(filepath.Dir(currentFile), "testdata", "dualsense-input-fields.md")
 	facts, err := os.ReadFile(factPath)
 	if err != nil {
 		t.Fatal(err)
@@ -159,11 +159,11 @@ func TestDescriptorFieldSummary(t *testing.T) {
 	}
 	actual := parsed.inputSummary()
 	if len(actual) != len(expected) {
-		t.Fatalf("parsed input summary has %d rows, fact sheet has %d", len(actual), len(expected))
+		t.Fatalf("parsed input summary has %d rows, fixture has %d", len(actual), len(expected))
 	}
 	for i := range expected {
 		if actual[i] != expected[i] {
-			t.Errorf("field %d = %+v, want fact-sheet row %+v", i, actual[i], expected[i])
+			t.Errorf("field %d = %+v, want fixture row %+v", i, actual[i], expected[i])
 		}
 	}
 }
