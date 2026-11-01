@@ -28,8 +28,8 @@ const stickDeadzone = 0.05
 // produced, unless the report is exactly 64 bytes and starts with 0x01.
 //
 // Buttons are mapped by position onto the Switch-shaped layout (Cross is the
-// bottom face button, so it's protocol.BtnB). The digital L2/R2 bits, Mute and
-// the touchpad click are not mapped; the analog trigger bytes carry L2/R2.
+// bottom face button, so it's protocol.BtnB). The digital L2/R2 bits are not
+// mapped; the analog trigger bytes carry L2/R2. Mute is mapped to BtnMute.
 func Parse(report []byte) (protocol.Input, bool) {
 	return parseWithDeadzone(report, stickDeadzone)
 }
@@ -60,6 +60,7 @@ func parseWithDeadzone(report []byte, deadzone float64) (protocol.Input, bool) {
 	set(shoulder, 0x10, protocol.BtnMinus)         // Create
 	set(report[offSystem], 0x01, protocol.BtnHome) // PS
 	set(report[offSystem], 0x02, protocol.BtnPSCClick)
+	set(report[offSystem], 0x04, protocol.BtnMute)
 	var touch [2]protocol.TouchContact
 	for i := range touch {
 		b := report[33+i*4 : 37+i*4]

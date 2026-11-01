@@ -2,14 +2,14 @@
 
 package virtualpad
 
-import "errors"
+import "fmt"
 
 const platformName = "vigem"
 
 func openPlatform() (Backend, error) {
-	return nil, errors.New("this build has no ViGEm client: rebuild with cgo (CGO_ENABLED=1 and a MinGW gcc)")
+	return nil, fmt.Errorf("%w: rebuild with cgo (CGO_ENABLED=1 and a MinGW gcc)", ErrNoCgo)
 }
 
 func diagnose() []Check {
-	return []Check{{Name: "ViGEmBus", OK: false, Detail: "não verificado (build sem cgo)", Help: "output"}}
+	return []Check{{Name: "ViGEmBus", OK: false, Detail: "build sem ViGEm (precisa de cgo)", Help: "output"}}
 }

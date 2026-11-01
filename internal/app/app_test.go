@@ -48,6 +48,214 @@ func (d *lightingDev) SetLighting(color [3]byte, brightness byte, off bool) erro
 	return nil
 }
 
+type framePad struct {
+	mu     sync.Mutex
+	frames []mapping.Frame
+}
+
+func (p *framePad) Update(mapping.XboxState) error { return nil }
+func (p *framePad) UpdateFrame(f mapping.Frame) error {
+	p.mu.Lock()
+	p.frames = append(p.frames, f)
+	p.mu.Unlock()
+	return nil
+}
+func (p *framePad) Close() error { return nil }
+
+type frameBackend struct{ pad *framePad }
+
+func (b *frameBackend) Name() string { return "frame" }
+func (b *frameBackend) NewPad(virtualpad.RumbleFunc) (virtualpad.Pad, error) {
+	if b.pad == nil {
+		b.pad = &framePad{}
+	}
+	return b.pad, nil
+}
+func (b *frameBackend) Close() error { return nil }
+
+func outputPoolApp(t *testing.T, out string, overrides map[string]string) (*App, map[string]*virtualpad.Recorder) {
+	t.Helper()
+	cfg := config.Default()
+	cfg.Output = out
+	cfg.OutputOverrides = overrides
+	recs := map[string]*virtualpad.Recorder{}
+	a := New(cfg, virtualpad.Null{}, nil, nil)
+	a.SetPool(virtualpad.NewPool(func(kind string) (virtualpad.Backend, error) {
+		if recs[kind] == nil {
+			recs[kind] = &virtualpad.Recorder{}
+		}
+		return recs[kind], nil
+	}))
+	a.SetOutputs(out, overrides)
+	return a, recs
+}
+
+func xboxRecorder(recs map[string]*virtualpad.Recorder) *virtualpad.Recorder {
+	for _, key := range []string{"vigem", "uinput"} {
+		if r := recs[key]; r != nil {
+			return r
+		}
+	}
+	return nil
+}
+
+func TestAutoOutputByControllerKind(t *testing.T) {
+	a, recs := outputPoolApp(t, "auto", nil)
+	defer a.Close()
+	ds := newDev("ds", 0)
+	ds.kind = protocol.KindDualSense
+	if err := a.AddDevice(context.Background(), ds); err != nil {
+		t.Fatal(err)
+	}
+	pro := newDev("pro", protocol.ProController2PID)
+	if err := a.AddDevice(context.Background(), pro); err != nil {
+		t.Fatal(err)
+	}
+	players := a.Players()
+	if players[0].Output != "DualSense" || players[1].Output != "Xbox 360" {
+		t.Fatalf("outputs %q / %q", players[0].Output, players[1].Output)
+	}
+	if got := len(recs["dualsense"].Snapshot()); got != 1 {
+		t.Fatalf("dualsense pads %d, want 1", got)
+	}
+	if x := xboxRecorder(recs); x == nil || len(x.Snapshot()) != 1 {
+		t.Fatal("xbox pad was not created for the Pro Controller")
+	}
+}
+
+func TestPlayerOutputOverrideRecreatesOnlyThatSlot(t *testing.T) {
+	a, recs := outputPoolApp(t, "auto", nil)
+	defer a.Close()
+	ds := newDev("ds", 0)
+	ds.kind = protocol.KindDualSense
+	pro := newDev("pro", protocol.ProController2PID)
+	if err := a.AddDevice(context.Background(), ds); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.AddDevice(context.Background(), pro); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.SetPlayerOutput(1, "xbox"); err != nil {
+		t.Fatal(err)
+	}
+	players := a.Players()
+	if players[0].Output != "Xbox 360" || players[0].OutputOverride != "Xbox 360" {
+		t.Fatalf("player 1 output %+v", players[0])
+	}
+	if players[1].Output != "Xbox 360" {
+		t.Fatalf("player 2 output %+v", players[1])
+	}
+	if x := xboxRecorder(recs); x == nil || len(x.Snapshot()) != 2 {
+		t.Fatalf("xbox pads %v, want 2", x)
+	}
+	if pads := recs["dualsense"].Snapshot(); !pads[0].Closed {
+		t.Fatal("old DualSense pad was not closed")
+	}
+	if _, err := a.SetPlayerOutput(1, "auto"); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.Players()[0]; got.Output != "DualSense" || got.OutputOverride != "" {
+		t.Fatalf("player 1 after auto %+v", got)
+	}
+	if pads := recs["dualsense"].Snapshot(); len(pads) != 2 || pads[1].Closed {
+		t.Fatalf("dualsense pads %d", len(pads))
+	}
+}
+
+func TestPlayerOutputSwitchRecreatesPad(t *testing.T) {
+	a, recs := outputPoolApp(t, "auto", nil)
+	defer a.Close()
+	pro := newDev("pro", protocol.ProController2PID)
+	if err := a.AddDevice(context.Background(), pro); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.SetPlayerOutput(1, "switch"); err != nil {
+		t.Fatal(err)
+	}
+	got := a.Players()[0]
+	if got.Output != "Switch Pro" || got.OutputOverride != "Switch Pro" || got.OutputKind != "switch" {
+		t.Fatalf("player %+v", got)
+	}
+	if pads := recs["switch"].Snapshot(); len(pads) != 1 {
+		t.Fatalf("switch pads %d, want 1", len(pads))
+	}
+	if x := xboxRecorder(recs); x == nil || !x.Snapshot()[0].Closed {
+		t.Fatal("old Xbox pad was not closed")
+	}
+}
+
+func TestDefaultOutputApplyKeepsManualOverride(t *testing.T) {
+	a, _ := outputPoolApp(t, "auto", nil)
+	defer a.Close()
+	ds := newDev("ds", 0)
+	ds.kind = protocol.KindDualSense
+	pro := newDev("pro", protocol.ProController2PID)
+	if err := a.AddDevice(context.Background(), ds); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.AddDevice(context.Background(), pro); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.SetPlayerOutput(2, "dualsense"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetDefaultOutput("xbox", true); err != nil {
+		t.Fatal(err)
+	}
+	players := a.Players()
+	if players[0].Output != "Xbox 360" {
+		t.Fatalf("player 1 output %+v", players[0])
+	}
+	if players[1].Output != "DualSense" || players[1].OutputOverride != "DualSense" {
+		t.Fatalf("player 2 output %+v", players[1])
+	}
+}
+
+func TestOutputFallsBackToNull(t *testing.T) {
+	cfg := config.Default()
+	cfg.Output = "auto"
+	a := New(cfg, virtualpad.Null{}, nil, nil)
+	a.SetPool(virtualpad.NewPool(func(string) (virtualpad.Backend, error) {
+		return nil, errors.New("no driver")
+	}))
+	ds := newDev("ds", 0)
+	ds.kind = protocol.KindDualSense
+	if err := a.AddDevice(context.Background(), ds); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if got := a.Players()[0].Output; got != "Somente movimento" {
+		t.Fatalf("output %q, want motion-only", got)
+	}
+}
+
+func TestDualSenseFramePadReceivesFullFrame(t *testing.T) {
+	backend := &frameBackend{}
+	a := New(config.Default(), backend, nil, nil)
+	d := newDev("ds", 0)
+	d.kind = protocol.KindDualSense
+	if err := a.AddDevice(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+
+	touch := [2]protocol.TouchContact{{Active: true, ID: 1, X: 100, Y: 200}}
+	d.send(protocol.Input{
+		Buttons: protocol.BtnB, Left: protocol.Stick{X: 0.25},
+		LeftTrigger: 123, AnalogTriggers: true, Touch: touch,
+	})
+	backend.pad.mu.Lock()
+	defer backend.pad.mu.Unlock()
+	if len(backend.pad.frames) == 0 {
+		t.Fatal("FramePad did not receive an update")
+	}
+	f := backend.pad.frames[len(backend.pad.frames)-1]
+	if f.Player.Buttons != protocol.BtnB || f.Player.LeftTrigger != 123 ||
+		!f.Player.Touch[0].Active || f.Player.Touch[0].X != 100 {
+		t.Fatalf("frame %+v", f.Player)
+	}
+}
+
 func TestDualSenseLightingAppliedOnAttach(t *testing.T) {
 	a, _ := newApp(t, func(c *config.Config) {
 		c.DualSenseLighting = true

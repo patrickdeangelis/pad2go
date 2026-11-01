@@ -9,6 +9,8 @@
   <script src="platform.js"></script>
   <link rel="stylesheet" href="styles.css">
   <script src="app.js" defer></script>
+  <script type="module" src="mapping.js"></script>
+  <script type="module" src="test-dialog.js"></script>
 </head>
 <body>
   <div id="pad2go" class="app">
@@ -17,6 +19,7 @@
       <div class="sidebar-items" role="tablist" aria-orientation="vertical" aria-label="Seções">
         <button id="tab-controllers" type="button" role="tab" aria-selected="true" aria-controls="panel-controllers" data-view="controllers"><span data-icon="gamepad"></span><span>Controles</span><span id="player-badge" class="badge" hidden></span></button>
         <button id="tab-motion" type="button" role="tab" aria-selected="false" aria-controls="panel-motion" data-view="motion" tabindex="-1"><span data-icon="orbit"></span><span>Movimento</span></button>
+        <button id="tab-mapping" type="button" role="tab" aria-selected="false" aria-controls="panel-mapping" data-view="mapping" tabindex="-1"><span data-icon="sliders"></span><span>Mapeamento</span></button>
         <button id="tab-settings" type="button" role="tab" aria-selected="false" aria-controls="panel-settings" data-view="settings" tabindex="-1"><span data-icon="gear"></span><span>Ajustes</span></button>
       </div>
       <div class="sidebar-footer" id="version"></div>
@@ -86,7 +89,7 @@
           <h2 class="group-title">Conexão</h2>
           <div class="group">
             <div class="row"><span class="row-icon" data-icon="bluetooth"></span><div class="row-label"><span>Bluetooth</span><small id="bluetooth-state">Iniciando…</small></div></div>
-            <div class="row"><span class="row-icon" data-icon="monitor"></span><div class="row-label"><span id="output-name">Saída</span><small id="output-detail"></small></div></div>
+            <div class="row"><span class="row-icon" data-icon="monitor"></span><div class="row-label"><span>Saída padrão</span><small id="output-detail"></small></div><div class="row-control"><select id="output-default" aria-label="Saída padrão"><option value="auto">Automática</option><option value="xbox">Xbox 360</option><option value="dualsense">DualSense</option><option value="switch">Switch Pro</option><option value="none">Somente movimento</option></select><button type="button" class="push small" id="apply-output" title="Aplicar aos players atuais">Aplicar</button></div></div>
             <label class="row"><div class="row-label"><span>Unir Joy-Cons</span><small>Um par, um jogador</small></div><div class="row-control"><input type="checkbox" switch class="switch" data-config="combine"></div></label>
             <label class="row"><div class="row-label"><span>Movimento para emuladores</span><small>Giroscópio via DSU</small></div><div class="row-control"><input type="checkbox" switch class="switch" data-config="gyro"></div></label>
           </div>
@@ -111,6 +114,10 @@
           <p class="group-footer">Use o mesmo endereço e porta nas configurações de movimento do emulador. Alterações valem após reiniciar as conexões.</p>
         </section>
 
+        <section id="panel-mapping" role="tabpanel" aria-labelledby="tab-mapping" hidden>
+          <div id="mapping-root"></div>
+        </section>
+
         <section id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
           <header class="page-header"><p>Salvos automaticamente. Valem após reiniciar as conexões.</p></header>
 
@@ -129,12 +136,6 @@
             <div class="row"><div class="row-label"><label for="trigger">Gatilhos · GameCube</label></div><div class="row-control"><select id="trigger" data-config="trigger"><option value="100% at Bump">Máximo no clique</option><option value="100% at Max">Máximo no fim do curso</option><option value="Hair Trigger">Toque leve</option></select></div></div>
           </div>
 
-          <h2 class="group-title">Botões extras</h2>
-          <div id="remaps" class="group"></div>
-          <p class="group-footer">Redirecione botões extras para outro botão do controle.</p>
-          <h2 class="group-title">Botões do DualSense</h2>
-          <div id="dualsense-remaps" class="group"></div>
-          <p class="group-footer">Escolha a ação no controle Xbox virtual. L2/R2 mapeados para botões acionam a partir de 50% do curso. As alterações entram em vigor ao reiniciar.</p>
           <h2 class="group-title">Iluminação do DualSense</h2>
           <div class="group">
             <label class="row"><div class="row-label"><span>Personalizar iluminação</span><small>Aplicada ao reconectar após reiniciar as conexões</small></div><div class="row-control"><input type="checkbox" class="switch" data-config="dualSenseLighting"></div></label>
@@ -151,7 +152,6 @@
 
           <h2 class="group-title">Conexão</h2>
           <div class="group">
-            <div class="row"><div class="row-label"><label for="backend">Saída</label></div><div class="row-control"><select id="backend" data-config="backend"><option value="auto">Automática</option><option value="vigem">ViGEmBus · Windows</option><option value="uinput">uinput · Linux</option><option value="none">Somente movimento</option></select></div></div>
             <div class="row"><div class="row-label"><label for="max">Máximo de jogadores</label></div><div class="row-control"><select id="max" data-config="max"><option>4</option><option>8</option></select></div></div>
             <div class="row"><div class="row-label"><label for="host-mac">Endereço Bluetooth do PC</label><small class="field-error" id="hostMac-error"></small></div><div class="row-control"><input id="host-mac" type="text" data-config="hostMac" spellcheck="false" aria-describedby="hostMac-error"></div></div>
             <div class="row"><div class="row-label"><label for="hold">Joy-Con avulso</label><small>Posição padrão</small></div><div class="row-control"><select id="hold" data-config="hold"><option value="Vertical">Vertical</option><option value="Horizontal">Horizontal</option></select></div></div>
@@ -169,32 +169,7 @@
     </main>
   </div>
 
-  <dialog id="test-dialog" class="sheet" aria-labelledby="test-title">
-    <header class="sheet-header"><div><h2 id="test-title">Teste de entrada</h2><p>Veja os botões físicos e o que chega ao controle virtual.</p></div></header>
-    <section class="test-device-section" aria-label="Controle conectado">
-      <div class="test-device-heading"><strong id="test-device-name">Controle</strong><span>Entrada física</span></div>
-      <div id="test-shoulders" class="test-shoulders"></div>
-      <div id="test-controller" class="test-controller"></div>
-      <p id="test-mapping" class="test-mapping"></p>
-    </section>
-    <div class="output-heading">Saída virtual · Xbox 360</div>
-    <div class="input-layout">
-      <div class="input-pad" role="img" aria-label="Visualização das entradas recebidas">
-        <div class="input-triggers"><span id="pad-l" class="pad-key wide">LB</span><span class="input-center"><span id="pad-back" class="pad-key wide" title="Back (− e Captura)">Back</span><span id="pad-guide" class="pad-key" title="Guide (Home)">⌂</span><span id="pad-start" class="pad-key wide" title="Start (+)">Start</span></span><span id="pad-r" class="pad-key wide">RB</span></div>
-        <div class="input-pad-body"><div class="pad-side"><div class="stick-field"><span class="stick-marker" id="stick-left"></span></div><div class="cross4"><span id="pad-up" class="pad-key">↑</span><span id="pad-left" class="pad-key">←</span><span id="pad-right" class="pad-key">→</span><span id="pad-down" class="pad-key">↓</span></div></div><div class="pad-side"><div class="cross4"><span id="pad-y" class="pad-key">Y</span><span id="pad-x" class="pad-key">X</span><span id="pad-b" class="pad-key">B</span><span id="pad-a" class="pad-key">A</span></div><div class="stick-field"><span class="stick-marker" id="stick-right"></span></div></div></div>
-      </div>
-      <div class="group readings">
-        <div class="row"><div class="row-label"><span>Analógico esquerdo</span></div><output id="left-values" class="value">X 0,00 · Y 0,00</output></div>
-        <div class="row"><div class="row-label"><span>Analógico direito</span></div><output id="right-values" class="value">X 0,00 · Y 0,00</output></div>
-        <div class="row"><div class="row-label"><span>Gatilho LT</span></div><div class="row-control meter"><progress id="trigger-l" max="100" value="0"></progress><output id="trigger-l-value" class="value">0%</output></div></div>
-        <div class="row"><div class="row-label"><span>Gatilho RT</span></div><div class="row-control meter"><progress id="trigger-r" max="100" value="0"></progress><output id="trigger-r-value" class="value">0%</output></div></div>
-        <div class="row"><div class="row-label"><span>Giroscópio (°/s)</span></div><output id="gyro-values" class="value">0,0 · 0,0 · 0,0</output></div>
-        <div class="row" id="touch-test" hidden><div class="row-label"><span>Touchpad</span><small>Até dois contatos simultâneos</small><output id="touch-values" class="value">Sem contato</output></div><svg class="touch-surface" viewBox="0 0 1920 1080" role="img" aria-label="Posição dos contatos no touchpad"><rect width="1920" height="1080" rx="100"/><circle id="touch-point-0" r="75" hidden/><circle id="touch-point-1" r="75" hidden/></svg></div>
-        <div class="row"><div class="row-label"><span>Botões no controle</span><small>O que você aperta, antes de virar Xbox</small></div><output id="pressed-values" class="value">—</output></div>
-      </div>
-    </div>
-    <footer class="sheet-footer"><span id="input-state" class="secondary" role="status">Aguardando entradas.</span><button id="rumble" type="button" class="push">Vibrar</button><button id="close-test" type="button" class="push primary">Concluído</button></footer>
-  </dialog>
+  <div id="test-root"></div>
 
   <div id="connection-toasts" class="toasts" aria-live="polite" aria-relevant="additions" aria-label="Avisos de conexão"></div>
 </body>

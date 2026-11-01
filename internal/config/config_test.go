@@ -52,6 +52,10 @@ func TestOriginalConfigCompatible(t *testing.T) {
 func TestValidate(t *testing.T) {
 	bad := []func(*Config){
 		func(c *Config) { c.Output = "dinput" },
+		func(c *Config) { c.OutputOverrides = map[string]string{"AA": "bogus"} },
+		func(c *Config) { c.OutputRemaps = map[string]map[string]string{"ps5": {"A": "B"}} },
+		func(c *Config) { c.OutputRemaps = map[string]map[string]string{"global": {"NOPE": "B"}} },
+		func(c *Config) { c.OutputRemaps = map[string]map[string]string{"global": {"A": "NOPE"}} },
 		func(c *Config) { c.ABXYMode = "PS" },
 		func(c *Config) { c.VibrationStrength = 11 },
 		func(c *Config) { c.MaxControllers = 0 },
@@ -66,6 +70,16 @@ func TestValidate(t *testing.T) {
 	}
 	if err := Default().Validate(); err != nil {
 		t.Fatal(err)
+	}
+	ds := Default()
+	ds.Output = "dualsense"
+	ds.OutputOverrides = map[string]string{"AA:BB:CC:DD:EE:FF": "switch"}
+	ds.OutputRemaps = map[string]map[string]string{
+		"global":    {"A": "B", "HOME": "None"},
+		"dualsense": {"CAPT": "PS_C_Click", "MUTE": "Default"},
+	}
+	if err := ds.Validate(); err != nil {
+		t.Fatalf("dualsense output: %v", err)
 	}
 }
 

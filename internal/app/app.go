@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"slices"
 	"sync"
@@ -49,6 +50,13 @@ type App struct {
 	dsu     *dsu.Server
 	rules   *mapping.Rules
 
+	pool *virtualpad.Pool
+
+	outputMu        sync.Mutex
+	defaultOutput   string
+	outputOverrides map[string]string
+	outputRemaps    map[string]map[string]string
+
 	mu             sync.Mutex
 	slots          []*slot
 	dualSenseSlots map[string]int
@@ -71,13 +79,231 @@ func New(cfg *config.Config, backend virtualpad.Backend, dsuServer *dsu.Server, 
 	for _, w := range warnings {
 		log.Warn(w)
 	}
+	overrides := maps.Clone(cfg.OutputOverrides)
+	if overrides == nil {
+		overrides = map[string]string{}
+	}
+	outputRemaps := cfg.OutputRemaps
+	if outputRemaps == nil {
+		outputRemaps = map[string]map[string]string{}
+	}
 	return &App{
 		cfg: cfg, log: log, backend: backend, dsu: dsuServer, rules: rules,
-		slots: make([]*slot, cfg.MaxControllers), dualSenseSlots: make(map[string]int),
+		defaultOutput: normalizeOutput(cfg.Output), outputOverrides: overrides,
+		outputRemaps: cloneRemaps(outputRemaps),
+		slots:        make([]*slot, cfg.MaxControllers), dualSenseSlots: make(map[string]int),
 	}
 }
 
-// ErrFull is returned when every player slot is taken.
+// SetPool enables per-player output selection through a backend pool.
+func (a *App) SetPool(pool *virtualpad.Pool) {
+	a.outputMu.Lock()
+	a.pool = pool
+	a.outputMu.Unlock()
+}
+
+// SetOutputs updates the default output and the per-MAC overrides.
+func (a *App) SetOutputs(def string, overrides map[string]string) {
+	clone := maps.Clone(overrides)
+	if clone == nil {
+		clone = map[string]string{}
+	}
+	a.outputMu.Lock()
+	a.defaultOutput = normalizeOutput(def)
+	a.outputOverrides = clone
+	a.outputMu.Unlock()
+}
+
+// DefaultOutput is the current global default.
+func (a *App) DefaultOutput() string {
+	a.outputMu.Lock()
+	defer a.outputMu.Unlock()
+	return a.defaultOutput
+}
+
+// OutputOverrides returns a copy of the per-controller overrides.
+func (a *App) OutputOverrides() map[string]string {
+	a.outputMu.Lock()
+	defer a.outputMu.Unlock()
+	return maps.Clone(a.outputOverrides)
+}
+
+func normalizeOutput(kind string) string {
+	switch kind {
+	case "vigem", "uinput", "xbox":
+		return virtualpad.OutputXbox
+	case virtualpad.OutputDualSense:
+		return virtualpad.OutputDualSense
+	case virtualpad.OutputSwitch:
+		return virtualpad.OutputSwitch
+	case virtualpad.OutputNone:
+		return virtualpad.OutputNone
+	default:
+		return virtualpad.OutputAuto
+	}
+}
+
+func (a *App) outputPreferences(kind protocol.Kind, addr string) []string {
+	a.outputMu.Lock()
+	override := a.outputOverrides[addr]
+	def := a.defaultOutput
+	a.outputMu.Unlock()
+	if override != "" && override != virtualpad.OutputAuto {
+		return []string{override, virtualpad.OutputNone}
+	}
+	switch def {
+	case virtualpad.OutputDualSense:
+		return []string{virtualpad.OutputDualSense, virtualpad.OutputNone}
+	case virtualpad.OutputSwitch:
+		return []string{virtualpad.OutputSwitch, virtualpad.OutputNone}
+	case virtualpad.OutputXbox:
+		return []string{virtualpad.OutputXbox, virtualpad.OutputNone}
+	case virtualpad.OutputNone:
+		return []string{virtualpad.OutputNone}
+	default:
+		if kind == protocol.KindDualSense {
+			return []string{virtualpad.OutputDualSense, virtualpad.OutputXbox, virtualpad.OutputNone}
+		}
+		return []string{virtualpad.OutputXbox, virtualpad.OutputDualSense, virtualpad.OutputNone}
+	}
+}
+
+// newPad creates a pad for s using the preferred output list. It returns the
+// effective kind, or "none" when every virtual output failed.
+func (a *App) newPad(s *slot, kind protocol.Kind, addr string) (virtualpad.Pad, string, error) {
+	a.outputMu.Lock()
+	pool := a.pool
+	a.outputMu.Unlock()
+	if pool == nil {
+		out, err := a.backend.NewPad(s.onRumble)
+		if err != nil {
+			return nil, "", err
+		}
+		label := virtualpad.OutputXbox
+		if _, ok := a.backend.(virtualpad.Null); ok {
+			label = virtualpad.OutputNone
+		}
+		return out, label, nil
+	}
+	var last error
+	for _, pref := range a.outputPreferences(kind, addr) {
+		out, err := pool.Pad(pref, s.onRumble)
+		if err == nil {
+			return out, pref, nil
+		}
+		last = err
+	}
+	// No virtual output is available: keep the player connected for the input
+	// test and DSU, with a null pad, instead of rejecting the controller.
+	if out, err := (virtualpad.Null{}).NewPad(s.onRumble); err == nil {
+		return out, virtualpad.OutputNone, nil
+	}
+	return nil, "", fmt.Errorf("no virtual output available: %w", last)
+}
+
+func (a *App) manualOverride(addr string) string {
+	a.outputMu.Lock()
+	defer a.outputMu.Unlock()
+	override := a.outputOverrides[addr]
+	if override == virtualpad.OutputAuto {
+		return ""
+	}
+	return override
+}
+
+// SetPlayerOutput changes one player slot's output and recreates only its pad.
+// override is "auto", "xbox", "dualsense", "switch" or "none"; auto clears the
+// override.
+func (a *App) SetPlayerOutput(player int, override string) (string, error) {
+	switch override {
+	case virtualpad.OutputAuto, virtualpad.OutputXbox, virtualpad.OutputDualSense, virtualpad.OutputSwitch, virtualpad.OutputNone:
+	default:
+		return "", fmt.Errorf("unknown player output %q", override)
+	}
+	s := a.slotFor(player)
+	if s == nil {
+		return "", ErrNoPlayer
+	}
+	s.mu.Lock()
+	if len(s.members) == 0 {
+		s.mu.Unlock()
+		return "", ErrNoPlayer
+	}
+	addr := s.members[0].dev.Address()
+	kind := s.members[0].dev.Kind()
+
+	a.outputMu.Lock()
+	old, had := a.outputOverrides[addr]
+	if override == virtualpad.OutputAuto {
+		delete(a.outputOverrides, addr)
+	} else {
+		a.outputOverrides[addr] = override
+	}
+	a.outputMu.Unlock()
+
+	out, effective, err := a.newPad(s, kind, addr)
+	if err != nil {
+		a.outputMu.Lock()
+		if had {
+			a.outputOverrides[addr] = old
+		} else {
+			delete(a.outputOverrides, addr)
+		}
+		a.outputMu.Unlock()
+		s.mu.Unlock()
+		return "", err
+	}
+	previous := s.out
+	s.out, s.outputKind = out, effective
+	if override == virtualpad.OutputAuto {
+		s.outputOverride = ""
+	} else {
+		s.outputOverride = override
+	}
+	s.mu.Unlock()
+	_ = previous.Close()
+	a.changed()
+	return addr, nil
+}
+
+// SetDefaultOutput changes the default for new players. With apply, slots
+// without a manual override are recreated as well.
+func (a *App) SetDefaultOutput(kind string, apply bool) error {
+	kind = normalizeOutput(kind)
+	a.outputMu.Lock()
+	a.defaultOutput = kind
+	a.outputMu.Unlock()
+	if !apply {
+		return nil
+	}
+	a.mu.Lock()
+	slots := slices.Clone(a.slots)
+	a.mu.Unlock()
+	for _, s := range slots {
+		if s == nil {
+			continue
+		}
+		s.mu.Lock()
+		if len(s.members) == 0 || (s.outputOverride != "" && s.outputOverride != virtualpad.OutputAuto) {
+			s.mu.Unlock()
+			continue
+		}
+		addr := s.members[0].dev.Address()
+		kind := s.members[0].dev.Kind()
+		out, effective, err := a.newPad(s, kind, addr)
+		if err != nil {
+			s.mu.Unlock()
+			continue
+		}
+		previous := s.out
+		s.out, s.outputKind = out, effective
+		s.mu.Unlock()
+		_ = previous.Close()
+	}
+	a.changed()
+	return nil
+}
+
 var ErrFull = errors.New("all player slots are in use")
 
 // Full reports whether no new controller can be added.
@@ -136,13 +362,13 @@ func (a *App) AddDevice(ctx context.Context, d Device) error {
 			a.mu.Unlock()
 			return ErrFull
 		}
-		s := &slot{app: a, player: idx + 1, pad: a.rules.NewPlayerPad()}
-		out, err := a.backend.NewPad(s.onRumble)
+		s := &slot{app: a, player: idx + 1, pad: a.rules.NewPlayerPad(), outputOverride: a.manualOverride(d.Address())}
+		out, effective, err := a.newPad(s, kind, d.Address())
 		if err != nil {
 			a.mu.Unlock()
 			return fmt.Errorf("create virtual pad: %w", err)
 		}
-		s.out = out
+		s.out, s.outputKind = out, effective
 		a.slots[idx] = s
 		target = s
 	}
@@ -269,11 +495,13 @@ type slot struct {
 
 	// mu serializes player pad updates and the virtual pad writes they
 	// produce, so a Joy-Con pair's reports reach the OS in order.
-	mu       sync.Mutex
-	pad      *mapping.PlayerPad
-	out      virtualpad.Pad
-	members  []*member
-	watchers map[chan Sample]struct{}
+	mu             sync.Mutex
+	pad            *mapping.PlayerPad
+	out            virtualpad.Pad
+	outputKind     string
+	outputOverride string
+	members        []*member
+	watchers       map[chan Sample]struct{}
 }
 
 func (s *slot) snapshot() []*member {
@@ -311,16 +539,26 @@ func (s *slot) onInput(m *member, in protocol.Input) {
 		dsuID = s.members[0].dev
 	}
 	if ok {
+		f = s.applyOutputRemaps(f, m.dev.Kind())
 		var pressed uint32
 		for _, x := range s.members {
 			pressed |= x.pressed
 		}
-		if err := s.out.Update(f.Xbox); err != nil {
-			a.log.Debug("virtual pad update failed", "err", err)
+		var updateErr error
+		if fp, ok := s.out.(virtualpad.FramePad); ok {
+			updateErr = fp.UpdateFrame(f)
+		} else {
+			updateErr = s.out.Update(f.Xbox)
+		}
+		if updateErr != nil {
+			a.log.Debug("virtual pad update failed", "err", updateErr)
 		}
 		for w := range s.watchers {
 			select {
-			case w <- Sample{Xbox: f.Xbox, Pressed: pressed, Physical: in, Kind: m.dev.Kind(), Gyro: f.Motion.Gyro, AnalogTriggers: in.AnalogTriggers}:
+			case w <- Sample{
+				Xbox: f.Xbox, Pressed: pressed, Mapped: protocol.ButtonNames(f.Player.Buttons),
+				Physical: in, Kind: m.dev.Kind(), Gyro: f.Motion.Gyro, AnalogTriggers: in.AnalogTriggers,
+			}:
 			default: // slow watcher: drop the sample
 			}
 		}
@@ -497,6 +735,23 @@ func (a *App) changed() {
 type Player struct {
 	Number  int
 	Members []Member
+	// Output is the effective virtual pad for this slot ("Xbox 360",
+	// "DualSense", "Switch Pro" or "Somente movimento").
+	Output     string
+	OutputKind string
+	// OutputOverride is the manual choice, empty when following the default.
+	OutputOverride     string
+	OutputOverrideKind string
+	// Requested is the output this slot asks for: its override, or what the
+	// default resolves to for its controllers. It differs from OutputKind when
+	// that backend is unavailable.
+	Requested string
+	// DefaultResolved is what the default output resolves to for this slot,
+	// ignoring any override.
+	DefaultResolved string
+	// ActiveRemaps are the output remaps running on this slot (applied
+	// configuration, not saved changes waiting for a restart).
+	ActiveRemaps []Remap
 }
 
 // Member is one controller in a player slot.
@@ -521,6 +776,7 @@ func (m Member) Battery() protocol.BatteryBand {
 
 // Players returns the occupied player slots in order.
 func (a *App) Players() []Player {
+	def := a.DefaultOutput()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	var out []Player
@@ -529,6 +785,14 @@ func (a *App) Players() []Player {
 			continue
 		}
 		p := Player{Number: s.player}
+		s.mu.Lock()
+		p.Output = virtualpad.Name(s.outputKind)
+		p.OutputKind = s.outputKind
+		if s.outputOverride != "" {
+			p.OutputOverride = virtualpad.Name(s.outputOverride)
+			p.OutputOverrideKind = s.outputOverride
+		}
+		s.mu.Unlock()
 		for _, m := range s.snapshot() {
 			transport := "Bluetooth LE"
 			if m.dev.Kind() == protocol.KindDualSense {
@@ -549,6 +813,21 @@ func (a *App) Players() []Player {
 				Diagnostics: diagnostics,
 			})
 		}
+		kind := protocol.KindUnknown
+		for i, m := range p.Members {
+			if i == 0 || m.Kind == protocol.KindDualSense {
+				kind = m.Kind
+			}
+		}
+		p.DefaultResolved = ResolveDefault(def, kind)
+		p.Requested = p.DefaultResolved
+		if p.OutputOverrideKind != "" && p.OutputOverrideKind != virtualpad.OutputAuto {
+			p.Requested = p.OutputOverrideKind
+		}
+		s.mu.Lock()
+		remapOutput := s.remapOutput(kind)
+		s.mu.Unlock()
+		p.ActiveRemaps = a.activeRemapsFor(remapOutput)
 		out = append(out, p)
 	}
 	return out
@@ -563,7 +842,10 @@ type Sample struct {
 	Kind     protocol.Kind
 	// Pressed is the physical buttons held across the slot's controllers
 	// (protocol.Btn* bits), before remapping.
-	Pressed        uint32
+	Pressed uint32
+	// Mapped is the virtual output's buttons after the output remaps, as
+	// canonical protocol names.
+	Mapped         []string
 	Gyro           [3]float32 // deg/s of the reporting controller
 	AnalogTriggers bool
 }

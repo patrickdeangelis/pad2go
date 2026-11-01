@@ -5,3 +5,12 @@
 /config.yaml
 ViGEmClient.dll
 /cmd/pad2go/*.syso
+
+# Development documents (plans, checks, decision logs, ADRs, fact sheets) stay local.
+.specs/
+docs/adr/
+docs/dualsense-usb-facts.md
+docs/switch-pro-facts.md
+docs/winuhid-arm64-gate.md
+/review/
+/ux-audit-*/

@@ -33,6 +33,9 @@ type Settings struct {
 	DualSenseTriggerLeft  string            `json:"dualSenseTriggerLeft"`
 	DualSenseTriggerRight string            `json:"dualSenseTriggerRight"`
 	Holds                 map[string]string `json:"holds"` // Joy-Con address -> hold mode
+	// OutputRemaps maps a scope ("global", "xbox", "dualsense" or "switch")
+	// to source -> target protocol button names.
+	OutputRemaps map[string]map[string]string `json:"outputRemaps"`
 }
 
 // Deadzones are radial stick deadzones in percent, per controller family.
@@ -75,6 +78,7 @@ func SettingsFrom(c *config.Config) Settings {
 			SLL: c.SLLMapping, SRL: c.SRLMapping, SLR: c.SLRMapping, SRR: c.SRRMapping,
 		},
 		Holds:             maps.Clone(c.JoyConHoldMode),
+		OutputRemaps:      cloneOutputRemaps(c.OutputRemaps),
 		DualSenseRemaps:   maps.Clone(c.DualSenseRemaps),
 		DualSenseLighting: c.DualSenseLighting, DualSenseColor: c.DualSenseColor, DualSenseBrightness: c.DualSenseBrightness, DualSensePlayerLED: c.DualSensePlayerLED,
 		DualSenseTriggerLeft: c.DualSenseTriggerLeft, DualSenseTriggerRight: c.DualSenseTriggerRight,
@@ -112,4 +116,31 @@ func (s Settings) Apply(c *config.Config) {
 	if c.JoyConHoldMode == nil {
 		c.JoyConHoldMode = map[string]string{}
 	}
+	c.OutputRemaps = cleanOutputRemaps(s.OutputRemaps)
+}
+
+func cloneOutputRemaps(remaps map[string]map[string]string) map[string]map[string]string {
+	out := make(map[string]map[string]string, len(remaps))
+	for scope, entries := range remaps {
+		out[scope] = maps.Clone(entries)
+	}
+	return out
+}
+
+// cleanOutputRemaps drops no-op entries and empty scopes so restoring a table
+// leaves the configuration file tidy. Unknown scopes are kept for Validate.
+func cleanOutputRemaps(remaps map[string]map[string]string) map[string]map[string]string {
+	out := make(map[string]map[string]string, len(remaps))
+	for scope, entries := range remaps {
+		clean := make(map[string]string, len(entries))
+		for source, target := range entries {
+			if target != "" && target != "Default" {
+				clean[source] = target
+			}
+		}
+		if len(clean) > 0 {
+			out[scope] = clean
+		}
+	}
+	return out
 }

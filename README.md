@@ -9,8 +9,9 @@
 pad2go is a controller bridge and desktop app written in Go. Connect **Switch 2
 Joy-Cons**, the **Switch 2 Pro Controller** and the **NSO GameCube Controller**
 over Bluetooth LE, or use a **PlayStation 5 DualSense** over USB or Bluetooth
-on Windows. pad2go provides virtual **Xbox 360** output, button remapping,
-rumble and an optional **CemuHook/DSU** motion server for emulators.
+on Windows. pad2go provides virtual **Xbox 360**, **DualSense** or **Switch Pro**
+output, button remapping, rumble and an optional **CemuHook/DSU** motion server
+for emulators.
 
 The project began as a Go port of
 [TommyWabg/Switch2Connect](https://github.com/TommyWabg/Switch2Connect) and has
@@ -26,7 +27,8 @@ Its initial implementation was based on upstream commit `e5dd90b`
 ## Quick start
 
 pad2go is a single executable. Running it opens the Pad2Go window, which
-shows players, connection progress, an input test, motion (DSU) and settings.
+shows players, connection progress, an input test, motion (DSU), button
+mapping (Mapeamento) and settings.
 Settings are saved to `config.yaml` in your user config folder, or to
 `./config.yaml` if one exists; use `-config` to choose another.
 
@@ -141,7 +143,9 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 
 | Key | Meaning |
 | --- | --- |
-| `output` | `auto`, `vigem`, `uinput` or `none` |
+| `output` | `auto`, `vigem`, `uinput`, `xbox`, `dualsense`, `switch` or `none` |
+| `output_overrides` | per-controller output by MAC: `auto`, `xbox`, `dualsense`, `switch` or `none` |
+| `output_remaps` | virtual button remaps by scope: `global` plus `xbox`/`dualsense`/`switch` overrides, in protocol button names (`None` clears a button) |
 | `host_mac` | this PC's Bluetooth MAC; auto-detected on Windows/Linux |
 | `abxy_mode` | `Xbox` (positional: Switch B → Xbox A) or `Switch` (by label) |
 | `combine_joycons` | merge a left + right Joy-Con into one pad |
@@ -155,6 +159,14 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 | `dualsense_trigger_left`, `dualsense_trigger_right` | DualSense adaptive trigger presets |
 | `gyro_passthrough_mode` | `Cemuhook` enables the DSU server (`cemuhook_host`, `cemuhook_port`) |
 | `home_mapping`, `capt_mapping`, `c_mapping`, `gl_mapping`, `gr_mapping`, `sll/srl/slr/srr_mapping` | `Default`, `None`, or a Switch button name |
+
+`output: dualsense` creates a virtual DualSense instead of an Xbox 360 pad. It carries touch, motion, analog triggers and rumble, and requires WinUHid on Windows (`\\.\WinUHid`) or `/dev/uhid` on Linux. `auto` chooses DualSense for a physical DualSense and Xbox 360 for Nintendo controllers. If a game sees both the physical and the virtual DualSense, hide the physical one with HidHide.
+
+`output: switch` creates a virtual Switch Pro Controller with both sticks, the full button set, rumble and gyro/accelerometer. Switch emulators discover it through SDL2's HIDAPI Switch driver; select the **Pro Controller** entry in the emulator. It uses the same WinUHid/`/dev/uhid` backend as the DualSense output. `auto` does not choose it, because a Switch pad is only wanted by emulators that understand the Switch protocol.
+
+On the main screen, **Saída padrão** selects the output for new players, and each player card has its own output selector, whose first option names what the default gives that player (e.g. `DualSense (padrão)`). `Automática` sends a physical DualSense to a virtual DualSense and Nintendo controllers to Xbox 360. A per-player choice is saved by MAC in `output_overrides`; changing it recreates only that player's pad.
+
+The **Mapeamento** tab lists remaps in the order they apply: **No controle físico** (extra buttons and DualSense buttons, before the layout) and **Na saída virtual**, which remaps virtual buttons by output. The built-in positional mapping stays the default; a `global` table applies everywhere and each output can override individual buttons. Targets use the protocol button names (`A`, `B`, `ZL`, `HOME`, `MUTE`, `PS_C_Click`, ...), `Padrão` keeps the built-in mapping and `Sem ação` clears the button. Remaps are applied before the output encoder, and the Xbox report is rebuilt from the remapped input. **Restaurar <saída>** clears only the selected output after a confirmation, and the input test lists the remaps running on that player (`· Remapeado: B → X`).
 
 ## Controller and output support
 
@@ -170,11 +182,13 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 | Joy-Con merging, vertical/horizontal single Joy-Con | ✅ |
 | Xbox 360 output via ViGEmBus (Windows) | ✅ |
 | Xbox 360 output via uinput (Linux) | ✅ |
+| DualSense virtual output via WinUHid (Windows) or uhid (Linux) | ✅ (driver required) |
+| Switch Pro virtual output via WinUHid (Windows) or uhid (Linux) | ✅ (driver required) |
 | Game rumble → HD rumble (LF/HF, strength, delay) | ✅ (basic mapping) |
 | CemuHook/DSU motion server | ✅ |
 | Extra-button remaps to controller buttons | ✅ |
 | Keyboard/mouse/media remaps, gyro mouse, IR mouse | ❌ |
-| PS4 controller input and Switch 1/2 emulation (WinUHid, USBIP) | ❌ |
+| PS4 controller input and Switch 2 emulation (WinUHid, USBIP) | ❌ |
 | DualSense audio haptics and Xbox impulse triggers | ❌ |
 | ESP32-S3 bridge, wired USB | ❌ |
 | Profiles, power saving, auto-disconnect, GUI/tray | ❌ |

@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/patrickdeangelis/pad2go/internal/protocol"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,8 +23,16 @@ const (
 
 // Config is the application configuration.
 type Config struct {
-	// Output selects the virtual gamepad backend: auto, vigem, uinput or none.
+	// Output selects the virtual gamepad backend: auto, vigem, uinput,
+	// dualsense, switch or none.
 	Output string `yaml:"output"`
+	// OutputOverrides maps a controller address (MAC) to a per-player output:
+	// auto, xbox, dualsense, switch or none. The default applies to new players.
+	OutputOverrides map[string]string `yaml:"output_overrides,omitempty"`
+	// OutputRemaps holds virtual-button remaps. "global" applies to every
+	// output; "xbox", "dualsense" and "switch" override it per output. Source
+	// and target names are the protocol button names.
+	OutputRemaps map[string]map[string]string `yaml:"output_remaps,omitempty"`
 	// HostMAC is this computer's Bluetooth address, used to pair controllers so
 	// they reconnect on a button press. Detected automatically where possible.
 	HostMAC string `yaml:"host_mac"`
@@ -110,8 +119,10 @@ type Remaps struct {
 // Default returns the default configuration.
 func Default() *Config {
 	return &Config{
-		Output:         "auto",
-		DualSenseColor: "#0080ff", DualSenseBrightness: 100, DualSensePlayerLED: true, DualSenseTriggerLeft: "off", DualSenseTriggerRight: "off",
+		Output:          "auto",
+		OutputOverrides: map[string]string{},
+		OutputRemaps:    map[string]map[string]string{},
+		DualSenseColor:  "#0080ff", DualSenseBrightness: 100, DualSensePlayerLED: true, DualSenseTriggerLeft: "off", DualSenseTriggerRight: "off",
 		MaxControllers:       4,
 		ABXYMode:             "Xbox",
 		CombineJoyCons:       true,
@@ -198,9 +209,35 @@ func (c *Config) Validate() error {
 		return errors.New("dualsense_brightness: want 0-100")
 	}
 	switch c.Output {
-	case "auto", "vigem", "uinput", "none":
+	case "auto", "vigem", "uinput", "xbox", "dualsense", "switch", "none":
 	default:
-		return fmt.Errorf("output: unknown backend %q (want auto, vigem, uinput or none)", c.Output)
+		return fmt.Errorf("output: unknown backend %q (want auto, vigem, uinput, xbox, dualsense, switch or none)", c.Output)
+	}
+	for addr, output := range c.OutputOverrides {
+		switch output {
+		case "auto", "xbox", "dualsense", "switch", "none":
+		default:
+			return fmt.Errorf("output_overrides[%s]: unknown output %q (want auto, xbox, dualsense, switch or none)", addr, output)
+		}
+	}
+	for scope, remaps := range c.OutputRemaps {
+		switch scope {
+		case "global", "xbox", "dualsense", "switch":
+		default:
+			return fmt.Errorf("output_remaps: unknown scope %q (want global, xbox, dualsense or switch)", scope)
+		}
+		for source, target := range remaps {
+			if _, ok := protocol.ButtonsByName[source]; !ok {
+				return fmt.Errorf("output_remaps[%s]: unknown source button %q", scope, source)
+			}
+			switch target {
+			case "", "Default", "None":
+				continue
+			}
+			if _, ok := protocol.ButtonsByName[target]; !ok {
+				return fmt.Errorf("output_remaps[%s][%s]: unknown target button %q", scope, source, target)
+			}
+		}
 	}
 	if c.ABXYMode != "Xbox" && c.ABXYMode != "Switch" {
 		return fmt.Errorf("abxy_mode: want Xbox or Switch, got %q", c.ABXYMode)
@@ -295,8 +332,20 @@ func ParseMAC(s string) (uint64, error) {
 const Sample = `# pad2go configuration.
 # Key names match the original Switch2Connect config.yaml where possible.
 
-# Virtual gamepad backend: auto | vigem (Windows) | uinput (Linux) | none
+# Virtual gamepad backend: auto | vigem (Windows) | uinput (Linux) |
+# dualsense (WinUHid on Windows, /dev/uhid on Linux) |
+# switch (Switch Pro via WinUHid on Windows, /dev/uhid on Linux) | none
 output: auto
+# Per-player output overrides by controller address (MAC): auto | xbox | dualsense | switch | none
+output_overrides: {}
+# Virtual button remaps by output. "global" applies to every output and the
+# per-output maps override it. Source/target are protocol button names; None
+# clears a button.
+# output_remaps:
+#   global:
+#     A: B
+#   xbox:
+#     CAPT: HOME
 
 # This PC's Bluetooth MAC. Needed to pair controllers so they reconnect with a
 # button press. Leave empty to auto-detect (Windows/Linux).

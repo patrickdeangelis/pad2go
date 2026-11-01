@@ -97,7 +97,7 @@ func main() {
 	case "init":
 		err = writeConfig(cfgPath)
 	case "check":
-		err = checkOutput()
+		err = checkOutput(cfgPath)
 	case "version":
 		fmt.Println("pad2go", version)
 	default:
@@ -134,7 +134,21 @@ func configPath(flagValue string) (string, error) {
 
 // checkOutput fails unless every virtual gamepad prerequisite holds. The
 // Windows installer runs it to decide whether to install ViGEmBus.
-func checkOutput() error {
+func checkOutput(cfgPath string) error {
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+	switch cfg.Output {
+	case "dualsense", "switch":
+		backend, err := virtualpad.Open(cfg.Output)
+		if err != nil {
+			return err
+		}
+		defer backend.Close()
+		fmt.Printf("%s: ready\n", virtualpad.Name(cfg.Output))
+		return nil
+	}
 	for _, c := range virtualpad.Diagnose() {
 		fmt.Printf("%s: %s\n", c.Name, c.Detail)
 		if !c.OK {

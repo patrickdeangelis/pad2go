@@ -114,6 +114,10 @@ func TestSettingsRoundTrip(t *testing.T) {
 	c := config.Default()
 	c.JoyConHoldMode["X"] = config.HoldHorizontal
 	c.HomeMapping = "A"
+	c.OutputRemaps = map[string]map[string]string{
+		"global":    {"A": "B"},
+		"dualsense": {"CAPT": "PS_C_Click"},
+	}
 	next := config.Default()
 	SettingsFrom(c).Apply(next)
 	if !reflect.DeepEqual(SettingsFrom(c), SettingsFrom(next)) {
@@ -283,6 +287,86 @@ func TestSnapshotDualSenseMember(t *testing.T) {
 		t.Fatalf("member=%+v", m)
 	}
 }
+func TestOutputSettingsPersist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	b := &hidTestBackend{infos: []hid.Info{{Path: "mac", VendorID: dualsense.VendorID, ProductID: dualsense.ProductID}}}
+	s := start(t, Options{
+		ConfigPath: path, HID: b,
+		OpenBackend: func(string) (virtualpad.Backend, error) { return &virtualpad.Recorder{}, nil },
+		Radio:       func() (lifecycle.Radio, error) { return nil, errors.New("adapter off") },
+	})
+	eventually(t, "player attached", func() bool { return len(s.Snapshot().Players) == 1 })
+	if got := s.Snapshot().Players[0].Output; got != "DualSense" {
+		t.Fatalf("initial output %q", got)
+	}
+	if err := s.SetPlayerOutput(1, "xbox"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Snapshot().Players[0].Output; got != "Xbox 360" {
+		t.Fatalf("player output %q", got)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.OutputOverrides["mac"]; got != "xbox" {
+		t.Fatalf("saved override %q", got)
+	}
+	if err := s.SetPlayerOutput(1, "auto"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cfg.OutputOverrides["mac"]; ok {
+		t.Fatal("auto did not clear the saved override")
+	}
+	if err := s.SetDefaultOutput("dualsense", false); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Output != "dualsense" || s.Snapshot().Output.Default != "dualsense" {
+		t.Fatalf("default output %q / %q", cfg.Output, s.Snapshot().Output.Default)
+	}
+}
+
+func TestOutputRemapsPersist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	s := start(t, Options{
+		ConfigPath: path,
+		OpenBackend: func(string) (virtualpad.Backend, error) {
+			return &virtualpad.Recorder{}, nil
+		},
+		Radio: func() (lifecycle.Radio, error) { return nil, errors.New("adapter off") },
+	})
+	set := s.Snapshot().Config
+	set.OutputRemaps = map[string]map[string]string{
+		"global": {"B": "A"},
+		"xbox":   {"B": "None"},
+	}
+	if err := s.SaveSettings(set); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Snapshot().Pending {
+		t.Fatal("remap-only change must be pending")
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfg.OutputRemaps, set.OutputRemaps) {
+		t.Fatalf("saved remaps %+v, want %+v", cfg.OutputRemaps, set.OutputRemaps)
+	}
+	set.OutputRemaps = map[string]map[string]string{"global": {"NOPE": "A"}}
+	if err := s.SaveSettings(set); err == nil {
+		t.Fatal("unknown source button accepted")
+	}
+}
+
 func TestBluetoothFaultStillStartsHID(t *testing.T) {
 	b := &hidTestBackend{infos: []hid.Info{{Path: "mac", VendorID: dualsense.VendorID, ProductID: dualsense.ProductID}}}
 	s := start(t, Options{HID: b, Radio: func() (lifecycle.Radio, error) { return nil, errors.New("adapter off") }})

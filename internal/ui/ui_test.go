@@ -25,10 +25,21 @@ import (
 )
 
 type fakeBackend struct {
-	saved     *service.Settings
-	restarted bool
-	rumbled   int
-	samples   chan app.Sample
+	saved        *service.Settings
+	restarted    bool
+	rumbled      int
+	samples      chan app.Sample
+	defaultCalls []defaultCall
+	playerCalls  []playerCall
+}
+
+type defaultCall struct {
+	kind  string
+	apply bool
+}
+type playerCall struct {
+	player int
+	kind   string
 }
 
 func (f *fakeBackend) Snapshot() service.Snapshot {
@@ -62,6 +73,19 @@ func (f *fakeBackend) TestRumble(n int) error {
 	return nil
 }
 func (f *fakeBackend) Disconnect(int) error { return nil }
+func (f *fakeBackend) SetDefaultOutput(kind string, apply bool) error {
+	switch kind {
+	case "auto", "xbox", "dualsense", "none":
+	default:
+		return errors.New("unknown output")
+	}
+	f.defaultCalls = append(f.defaultCalls, defaultCall{kind, apply})
+	return nil
+}
+func (f *fakeBackend) SetPlayerOutput(player int, kind string) error {
+	f.playerCalls = append(f.playerCalls, playerCall{player, kind})
+	return nil
+}
 
 func serve(t *testing.T) (*httptest.Server, *fakeBackend) {
 	t.Helper()
@@ -156,6 +180,28 @@ func TestSaveConfig(t *testing.T) {
 	}
 	if code := do(t, "PUT", srv.URL+"/api/config", `{"port":26760,"layout":"Switch"}`, mutate).StatusCode; code != 200 || b.saved.Layout != "Switch" {
 		t.Fatalf("valid: %d", code)
+	}
+}
+
+func TestOutputRoutes(t *testing.T) {
+	srv, b := serve(t)
+	resp := do(t, http.MethodPost, srv.URL+"/api/output", `{"backend":"dualsense","apply":true}`, mutate)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("default output status %d", resp.StatusCode)
+	}
+	if len(b.defaultCalls) != 1 || b.defaultCalls[0] != (defaultCall{"dualsense", true}) {
+		t.Fatalf("default calls %+v", b.defaultCalls)
+	}
+	resp = do(t, http.MethodPost, srv.URL+"/api/players/2/output", `{"output":"xbox"}`, mutate)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("player output status %d", resp.StatusCode)
+	}
+	if len(b.playerCalls) != 1 || b.playerCalls[0] != (playerCall{2, "xbox"}) {
+		t.Fatalf("player calls %+v", b.playerCalls)
+	}
+	resp = do(t, http.MethodPost, srv.URL+"/api/output", `{"backend":"bogus"}`, mutate)
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid output status %d", resp.StatusCode)
 	}
 }
 
