@@ -27,7 +27,8 @@ Its initial implementation was based on upstream commit `e5dd90b`
 ## Quick start
 
 pad2go is a single executable. Running it opens the Pad2Go window, which
-shows players, connection progress, an input test, motion (DSU) and settings.
+shows players, connection progress, an input test, motion (DSU), button
+mapping (Mapeamento) and settings.
 Settings are saved to `config.yaml` in your user config folder, or to
 `./config.yaml` if one exists; use `-config` to choose another.
 
@@ -163,9 +164,9 @@ keys are ignored; `button_remaps.xbox` overrides apply).
 
 `output: switch` creates a virtual Switch Pro Controller with both sticks, the full button set, rumble and gyro/accelerometer. Switch emulators discover it through SDL2's HIDAPI Switch driver; select the **Pro Controller** entry in the emulator. It uses the same WinUHid/`/dev/uhid` backend as the DualSense output. `auto` does not choose it, because a Switch pad is only wanted by emulators that understand the Switch protocol.
 
-On the main screen, **Saída padrão** selects the output for new players, and each player card has its own output selector. `Automático` sends a physical DualSense to a virtual DualSense and Nintendo controllers to Xbox 360. A per-player choice is saved by MAC in `output_overrides`; changing it recreates only that player's pad.
+On the main screen, **Saída padrão** selects the output for new players, and each player card has its own output selector, whose first option names what the default gives that player (e.g. `DualSense (padrão)`). `Automática` sends a physical DualSense to a virtual DualSense and Nintendo controllers to Xbox 360. A per-player choice is saved by MAC in `output_overrides`; changing it recreates only that player's pad.
 
-Settings → **Mapeamento por saída** remaps virtual buttons by output. The built-in positional mapping stays the default; a `global` table applies everywhere and each output can override individual buttons. Targets use the protocol button names (`A`, `B`, `ZL`, `HOME`, `MUTE`, `PS_C_Click`, ...), `Padrão` keeps the built-in mapping and `Sem ação` clears the button. Remaps are applied before the output encoder, and the Xbox report is rebuilt from the remapped input.
+The **Mapeamento** tab lists remaps in the order they apply: **No controle físico** (extra buttons and DualSense buttons, before the layout) and **Na saída virtual**, which remaps virtual buttons by output. The built-in positional mapping stays the default; a `global` table applies everywhere and each output can override individual buttons. Targets use the protocol button names (`A`, `B`, `ZL`, `HOME`, `MUTE`, `PS_C_Click`, ...), `Padrão` keeps the built-in mapping and `Sem ação` clears the button. Remaps are applied before the output encoder, and the Xbox report is rebuilt from the remapped input. **Restaurar <saída>** clears only the selected output after a confirmation, and the input test lists the remaps running on that player (`· Remapeado: B → X`).
 
 ## Controller and output support
 

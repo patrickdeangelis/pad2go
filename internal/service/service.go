@@ -707,25 +707,25 @@ func (s *Service) Snapshot() Snapshot {
 	switch defaultKind {
 	case virtualpad.OutputDualSense:
 		if platform == "Windows" {
-			snap.Output.Detail = "Windows - WinUHid"
+			snap.Output.Detail = "DualSense · WinUHid"
 		} else {
-			snap.Output.Detail = platform + " - /dev/uhid"
+			snap.Output.Detail = "DualSense · /dev/uhid"
 		}
 	case virtualpad.OutputSwitch:
 		if platform == "Windows" {
-			snap.Output.Detail = "Switch Pro - WinUHid"
+			snap.Output.Detail = "Switch Pro · WinUHid"
 		} else {
-			snap.Output.Detail = "Switch Pro - /dev/uhid"
+			snap.Output.Detail = "Switch Pro · /dev/uhid"
 		}
 	case virtualpad.OutputXbox:
-		snap.Output.Detail = platform + " - Xbox 360"
+		snap.Output.Detail = "Xbox 360 · " + platform
 	case virtualpad.OutputNone:
 		snap.Output.Detail = "DSU desativado"
 		if s.applied.CemuhookEnabled() {
 			snap.Output.Detail = "DSU ativo"
 		}
 	default:
-		snap.Output.Detail = "DualSense -> DualSense, outros -> Xbox 360"
+		snap.Output.Detail = "DualSense → DualSense · outros → Xbox 360"
 	}
 	if defaultKind != virtualpad.OutputNone && len(s.outputAvailable) > 0 &&
 		!s.outputAvailable[virtualpad.OutputXbox] && !s.outputAvailable[virtualpad.OutputDualSense] {
