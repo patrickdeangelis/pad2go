@@ -114,6 +114,7 @@
   }
 
   let devicesKey = '';
+  let bannerHTML = '';
   function renderDevices() {
     const players = snap.players;
     el('player-count').textContent = players.length ? `${players.length} ${players.length === 1 ? 'conectado' : 'conectados'}` : '';
@@ -257,6 +258,7 @@
     el('client-count').textContent = dsu.clients;
     const fault = snap.fault;
     el('system-alert').hidden = !fault;
+    if (!fault) bannerHTML = '';
     if (fault) {
       const outputFault = fault.kind === 'output';
       const title = fault.kind === 'bluetooth' ? 'O Bluetooth não está disponível' : outputFault ? 'Sem saída virtual: os jogos não veem os controles' : 'Problema na configuração';
@@ -264,7 +266,10 @@
       const outputReasons = Array.isArray(fault.reasons) && fault.reasons.length ? fault.reasons : [snap.platform === 'Windows' ? 'Os controles conectam e podem ser testados, mas falta uma saída virtual.' : mac ? 'No macOS não há controle virtual: escolha “Automática” ou “Somente movimento”.' : 'Confira o acesso a /dev/uinput.'];
       const body = outputFault ? outputReasons.map(line => `<span>${escape(line)}</span>`).join('') : `<span>${reason}</span>`;
       const actions = outputFault ? `<button type="button" class="push primary" data-help="output">Como resolver</button><button type="button" class="push" data-retry>${snap.restarting ? 'Tentando…' : 'Tentar novamente'}</button><span>depois de instalar</span>` : `<button type="button" class="push" data-retry>${snap.restarting ? 'Tentando…' : 'Tentar novamente'}</button><button type="button" class="link" data-help="bluetooth">Como resolver</button>`;
-      el('system-alert').innerHTML = `<strong>${title}</strong>${body}<div class="banner-actions">${actions}</div>`;
+      // Rebuild only when the content changes: state events arrive every few
+      // seconds, and replacing the buttons drops focus and in-flight clicks.
+      const banner = `<strong>${title}</strong>${body}<div class="banner-actions">${actions}</div>`;
+      if (banner !== bannerHTML) { el('system-alert').innerHTML = banner; bannerHTML = banner; }
     }
     el('connect').disabled = false;
     const busy = snap.discovery.step >= 1 && snap.discovery.step < 4 && !snap.discovery.failure && !snap.discovery.foreign;

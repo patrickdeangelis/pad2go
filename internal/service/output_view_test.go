@@ -184,3 +184,31 @@ func TestActiveRemapsAreTheRunningOnes(t *testing.T) {
 		return len(v.Players) == 1 && reflect.DeepEqual(v.Players[0].ActiveRemaps, want)
 	})
 }
+
+func TestDiagnosticsAutoChecksDualSenseDriver(t *testing.T) {
+	s := build(t, Options{OpenBackend: func(kind string) (virtualpad.Backend, error) {
+		if kind == virtualpad.OutputDualSense {
+			return nil, errNoUHID
+		}
+		return &virtualpad.Recorder{}, nil
+	}})
+	var found *Check
+	for _, c := range s.Diagnostics() {
+		if c.Name == "DualSense virtual" {
+			found = &c
+		}
+	}
+	if runtime.GOOS == "darwin" {
+		if found != nil {
+			t.Fatal("macOS lists a DualSense virtual check")
+		}
+		return
+	}
+	want := "driver WinUHid não encontrado"
+	if runtime.GOOS != "windows" {
+		want = "/dev/uhid indisponível"
+	}
+	if found == nil || found.OK || found.Detail != want || found.Help != "output" {
+		t.Fatalf("DualSense check %+v", found)
+	}
+}

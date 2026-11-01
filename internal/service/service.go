@@ -836,21 +836,34 @@ func (s *Service) Diagnostics() []Check {
 		bt.OK, bt.Detail = true, "não iniciado"
 	}
 	checks := []Check{bt}
-	if output == "dualsense" || output == "switch" {
+	open := s.opt.OpenBackend
+	if open == nil {
+		open = virtualpad.Open
+	}
+	hidCheck := func(kind string) Check {
 		name := "DualSense virtual"
-		if output == "switch" {
+		if kind == virtualpad.OutputSwitch {
 			name = "Switch Pro virtual"
 		}
 		check := Check{Name: name, OK: true, Detail: "disponível", Help: "output"}
-		if backend, err := virtualpad.Open(output); err != nil {
+		if backend, err := open(kind); err != nil {
 			check.OK, check.Detail = false, diagnosticDetail(err, runtime.GOOS)
 		} else {
 			_ = backend.Close()
 		}
-		checks = append(checks, check)
-	} else {
+		return check
+	}
+	switch kind := outputKind(output); kind {
+	case virtualpad.OutputDualSense, virtualpad.OutputSwitch:
+		checks = append(checks, hidCheck(kind))
+	default:
 		for _, c := range virtualpad.Diagnose() {
 			checks = append(checks, Check{Name: c.Name, OK: c.OK, Detail: c.Detail, Help: c.Help})
+		}
+		// Automática sends a DualSense to the DualSense output, so its
+		// driver is a prerequisite too.
+		if kind == virtualpad.OutputAuto && Platform() != "macOS" {
+			checks = append(checks, hidCheck(virtualpad.OutputDualSense))
 		}
 	}
 	if Platform() == "macOS" {
