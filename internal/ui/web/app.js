@@ -318,7 +318,25 @@
   // --- Diagnostics ------------------------------------------------------------------
   const help = {
     bluetooth: () => snap.platform === 'macOS' ? 'Na primeira execução o macOS pergunta se o Pad2Go pode usar o Bluetooth: clique em Permitir. Se você recusou, ative o Pad2Go em Ajustes do Sistema → Privacidade e Segurança → Bluetooth. Confira se o Bluetooth está ligado e clique em “Tentar novamente”.' : 'Ligue o Bluetooth nas configurações do computador e confirme que há um adaptador compatível com Bluetooth LE. Depois, clique em “Tentar novamente”.',
-    output: () => snap.config.backend === 'dualsense' || snap.config.backend === 'switch' ? `A saída ${snap.config.backend === 'switch' ? 'Switch Pro' : 'DualSense'} virtual precisa do driver <a href="https://github.com/cgutman/WinUHid" target="_blank" rel="noreferrer">WinUHid</a> no Windows, ou de /dev/uhid no Linux. Instale o driver e clique em Tentar novamente. Em emuladores de Switch, escolha o controle como Pro Controller no driver SDL2; se o jogo detectar entradas duplicadas, use o HidHide para ocultar o controle físico.` : snap.platform === 'macOS' ? 'O macOS não permite criar controles virtuais. Em Ajustes → Conexão → Saída, escolha “Automática” ou “Somente movimento” e reinicie as conexões; o movimento continua disponível para emuladores via DSU.' : snap.platform === 'Windows' ? 'O instalador do Pad2Go já instala o ViGEmBus. Se você usou o pad2go.exe avulso, instale o <a href="https://github.com/nefarius/ViGEmBus/releases/latest" target="_blank" rel="noreferrer">ViGEmBus 1.22</a> e clique em Tentar novamente. Se o jogo detectar entradas duplicadas, use o <a href="https://github.com/nefarius/HidHide" target="_blank" rel="noreferrer">HidHide</a> para ocultar o controle físico.' : 'Carregue o módulo com <code>sudo modprobe uinput</code>, confira se /dev/uinput existe e dê acesso ao seu usuário com uma regra udev.',
+    output: () => {
+      // One remedy per backend the default output needs and cannot open.
+      if (snap.platform === 'macOS') return 'O macOS não permite criar controles virtuais. Em Controles → Conexão → Saída padrão, escolha “Automática” ou “Somente movimento”; o movimento continua disponível para emuladores via DSU.';
+      const linux = snap.platform === 'Linux';
+      const available = snap.output.available || {};
+      const def = snap.output.default;
+      const xbox = (def === 'auto' || def === 'xbox') && available.xbox === false;
+      const hid = (def === 'auto' && available.dualsense === false) || ((def === 'dualsense' || def === 'switch') && available[def] === false);
+      const vigem = linux
+        ? 'Xbox 360: carregue o módulo com <code>sudo modprobe uinput</code>, confira se /dev/uinput existe e dê acesso ao seu usuário com uma regra udev.'
+        : 'Xbox 360: o instalador do Pad2Go já instala o ViGEmBus e traz um build com suporte a ele. Se você usou o pad2go.exe avulso, instale o <a href="https://github.com/nefarius/ViGEmBus/releases/latest" target="_blank" rel="noreferrer">ViGEmBus 1.22</a> e use o build do instalador.';
+      const winuhid = linux
+        ? 'DualSense/Switch Pro: confira se /dev/uhid existe e se o seu usuário tem acesso a ele.'
+        : 'DualSense/Switch Pro: instale o driver <a href="https://github.com/cgutman/WinUHid" target="_blank" rel="noreferrer">WinUHid</a>. Em emuladores de Switch, escolha o controle como Pro Controller no driver SDL2.';
+      const parts = [xbox && vigem, hid && winuhid].filter(Boolean);
+      if (!parts.length) parts.push(def === 'dualsense' || def === 'switch' ? winuhid : vigem);
+      parts.push('Depois, clique em “Tentar novamente”. Se o jogo detectar entradas duplicadas, use o <a href="https://github.com/nefarius/HidHide" target="_blank" rel="noreferrer">HidHide</a> para ocultar o controle físico.');
+      return parts.map(part => `<span class="help-line">${part}</span>`).join('');
+    },
     mac: () => 'Informe o endereço Bluetooth do computador em Ajustes → Conexão. Sem ele a conexão funciona, mas o pareamento para reconectar com um toque não é salvo.',
   };
   function showHelp(button) {
@@ -327,7 +345,7 @@
     if (old) { old.remove(); return; }
     const paragraph = document.createElement('p'); paragraph.className = 'help'; paragraph.dataset.for = button.dataset.help;
     paragraph.innerHTML = help[button.dataset.help]();
-    if (button.dataset.help === 'output') paragraph.innerHTML += `<div class="technical">Detalhe técnico: ${escape(snap.fault?.message || '')}</div>`;
+    if (button.dataset.help === 'output' && snap.fault?.kind === 'output') paragraph.innerHTML += `<span class="technical">Detalhe técnico: ${escape(snap.fault.message)}</span>`;
     host.after(paragraph);
   }
   async function diagnose() {

@@ -295,6 +295,8 @@ dialog.confirm footer { display: flex; justify-content: flex-end; gap: 8px; }
 .link { appearance: none; border: 0; background: none; padding: 0; color: var(--accent); font-size: 12px; }
 .help { color: var(--secondary); font-size: 12px; line-height: 1.5; padding: 0 14px 12px 46px; }
 .help a { color: var(--accent); }
+.help .help-line, .help .technical { display: block; }
+.help .help-line + .help-line { margin-top: 4px; }
 
 .status { font-size: 12px; color: var(--secondary); display: inline-flex; align-items: center; gap: 5px; }
 .status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--tertiary); }
