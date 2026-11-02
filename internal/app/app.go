@@ -61,6 +61,7 @@ type App struct {
 	slots           []*slot
 	dualSenseSlots  map[string]int
 	idleTimeout     time.Duration
+	touchpadPointer bool
 
 	onChange func()
 }
@@ -91,6 +92,7 @@ func New(cfg *config.Config, backend virtualpad.Backend, dsuServer *dsu.Server, 
 	return &App{
 		cfg: cfg, log: log, backend: backend, dsu: dsuServer, rules: rules,
 		idleTimeout:     time.Duration(cfg.AutoDisconnectMinutes) * time.Minute,
+		touchpadPointer: cfg.TouchpadPointer,
 		defaultOutput:   normalizeOutput(cfg.Output), outputOverrides: overrides,
 		outputRemaps: cloneRemaps(outputRemaps),
 		slots:        make([]*slot, cfg.MaxControllers), dualSenseSlots: make(map[string]int),
@@ -495,6 +497,7 @@ type member struct {
 	lastActivity  atomic.Int64
 	idleDone      chan struct{}
 	idleOnce      sync.Once
+	touchpad      TouchpadPointerState
 }
 
 func (m *member) stopIdle() {
@@ -581,6 +584,14 @@ func (s *slot) onInput(m *member, in protocol.Input) {
 	}
 	s.mu.Lock()
 	f, ok := s.pad.Update(m.dev.Address(), in)
+	dsuMotion := f.PlayerMotion
+	dsuTouchActive := false
+	if ok && a.dsu != nil && a.touchpadPointer && m.dev.Kind() == protocol.KindDualSense {
+		dsuMotion, dsuTouchActive = m.touchpad.Update(in.Touch, time.Now(), f.PlayerMotion)
+		if dsuTouchActive {
+			dsuMotion = calibrateTouchpadPointerMotion(dsuMotion)
+		}
+	}
 	m.pressed = in.Buttons
 	// A Joy-Con pair is one DSU pad, named after its first Joy-Con so it
 	// keeps the DSU slot that Joy-Con had alone.
@@ -628,7 +639,7 @@ func (s *slot) onInput(m *member, in protocol.Input) {
 		}
 	}
 	if ok && a.dsu != nil {
-		a.publishMotion(dsuID, s.lowestBattery(), f)
+		a.publishMotion(dsuID, s.lowestBattery(), f, dsuMotion, dsuTouchActive)
 	}
 }
 
@@ -674,13 +685,14 @@ func (s *slot) lowestBattery() protocol.BatteryBand {
 // publishMotion sends the player's state to DSU clients: a Joy-Con pair as
 // one full pad (buttons, both sticks, the chosen side's motion), any other
 // controller as itself.
-func (a *App) publishMotion(id Device, battery protocol.BatteryBand, f mapping.Frame) {
+func (a *App) publishMotion(id Device, battery protocol.BatteryBand, f mapping.Frame, motion mapping.Motion, touchActive bool) {
 	model := byte(dsu.ModelDS4)
 	if !f.Pair && !id.Kind().ProLike() && id.Kind() != protocol.KindDualSense {
 		model = dsu.ModelJoyCon
 	}
-	motion := f.PlayerMotion
-	motion.Gyro[1] *= dsu.YawScale(a.cfg.CemuhookSensitivity)
+	if !touchActive {
+		motion.Gyro[1] *= dsu.YawScale(a.cfg.CemuhookSensitivity)
+	}
 	p := f.Player
 	a.dsu.Publish(dsu.Pad{
 		MAC: addressMAC(id.Address()), Model: model,

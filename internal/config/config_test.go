@@ -18,6 +18,20 @@ func TestMissingFileGivesDefaults(t *testing.T) {
 	}
 }
 
+func TestTouchpadPointerOmittedConfigFieldDefaultsOff(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("output: auto\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TouchpadPointer {
+		t.Fatal("missing touchpad_pointer_enabled must default to false")
+	}
+}
+
 func TestAutoDisconnectSettingValidation(t *testing.T) {
 	for _, value := range []int{0, 1, 15, 120} {
 		c := Default()

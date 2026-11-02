@@ -3,7 +3,7 @@
    pressed parts are toggled in a layout effect, because those nodes come
    from the SVG files, not from this component. Samples arrive at stream rate
    and are drawn at most once per animation frame. */
-import { html, render, useState, useEffect, useLayoutEffect, useRef } from './vendor/htm-preact.module.js';
+import { html, useState, useEffect, useLayoutEffect, useRef } from './vendor/htm-preact.module.js';
 
 const controllerAsset = kind => ({ ds: 'dualsense', left: 'joycon-l', right: 'joycon-r', pro: 'pro', gc: 'gamecube' }[kind] || 'pro');
 const holdMode = member => {
@@ -217,7 +217,7 @@ function highlightArt(root, sample, testKind, virtualKind) {
   });
 }
 
-function TestDialog() {
+export function TestDialog() {
   const [view, setView] = useState(null);
   const [sample, setSample] = useState(idle);
   const [status, setStatus] = useState('Aguardando entradas.');
@@ -297,4 +297,3 @@ function TestDialog() {
   </dialog>`;
 }
 
-render(html`<${TestDialog} />`, document.getElementById('test-root'));

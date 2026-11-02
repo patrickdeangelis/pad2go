@@ -11,6 +11,7 @@ type Settings struct {
 	Combine               bool              `json:"combine"`
 	PairGyro              string            `json:"pairGyro"` // "Right" or "Left": a pair's motion source
 	Gyro                  bool              `json:"gyro"`
+	TouchpadPointer       bool              `json:"touchpadPointer"`
 	Layout                string            `json:"layout"`      // "Xbox" (by position) or "Switch" (by label)
 	Vibration             int               `json:"vibration"`   // 0-10, 5 = 100%
 	Sensitivity           int               `json:"sensitivity"` // 1-5, yaw only
@@ -63,7 +64,7 @@ type Remaps struct {
 // SettingsFrom extracts the UI settings from a configuration.
 func SettingsFrom(c *config.Config) Settings {
 	return Settings{
-		Combine: c.CombineJoyCons, PairGyro: c.PairGyro, Gyro: c.CemuhookEnabled(), Layout: c.ABXYMode,
+		Combine: c.CombineJoyCons, PairGyro: c.PairGyro, Gyro: c.CemuhookEnabled(), TouchpadPointer: c.TouchpadPointer, Layout: c.ABXYMode,
 		Vibration: c.VibrationStrength, Sensitivity: c.CemuhookSensitivity,
 		Host: c.CemuhookHost, Port: c.CemuhookPort, Max: c.MaxControllers,
 		Backend: c.Output, HostMAC: c.HostMAC, Hold: c.DefaultHoldMode,
@@ -94,6 +95,7 @@ func (s Settings) Apply(c *config.Config) {
 	if s.Gyro {
 		c.GyroPassthroughMode = "Cemuhook"
 	}
+	c.TouchpadPointer = s.TouchpadPointer
 	c.ABXYMode, c.VibrationStrength, c.CemuhookSensitivity = s.Layout, s.Vibration, s.Sensitivity
 	c.CemuhookHost, c.CemuhookPort, c.MaxControllers = s.Host, s.Port, s.Max
 	c.Output, c.HostMAC, c.DefaultHoldMode = s.Backend, s.HostMAC, s.Hold

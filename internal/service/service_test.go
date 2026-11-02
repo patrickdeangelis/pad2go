@@ -151,6 +151,27 @@ func TestAutoDisconnectSettingRoundTrip(t *testing.T) {
 	}
 }
 
+func TestTouchpadPointerSettingsPersist(t *testing.T) {
+	s := build(t, Options{})
+	for _, want := range []bool{false, true} {
+		set := s.Snapshot().Config
+		set.TouchpadPointer = want
+		if err := s.SaveSettings(set); err != nil {
+			t.Fatal(err)
+		}
+		loaded, err := config.Load(s.opt.ConfigPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := loaded.TouchpadPointer; got != want {
+			t.Fatalf("loaded touchpad_pointer_enabled=%v, want %v", got, want)
+		}
+		if got := SettingsFrom(loaded).TouchpadPointer; got != want {
+			t.Fatalf("settings touchpadPointer=%v, want %v", got, want)
+		}
+	}
+}
+
 func TestAutoDisconnectSettingsRejectOutOfRangeValues(t *testing.T) {
 	s := build(t, Options{})
 	for _, value := range []int{-1, 121} {

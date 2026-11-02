@@ -43,15 +43,26 @@ func TestTouchContactsAndClick(t *testing.T) {
 	r := inputReport(nil)
 	r[10] |= 2
 	copy(r[33:41], []byte{7, 0x34, 0x52, 0x18, 0x80 | 8, 0, 0, 0})
-	in, ok := Parse(r)
-	if !ok || in.Buttons&protocol.BtnPSCClick == 0 {
-		t.Fatal("touch click missing")
-	}
-	if got := in.Touch[0]; !got.Active || got.ID != 7 || got.X != 0x234 || got.Y != 0x185 {
-		t.Fatalf("contact: %+v", got)
-	}
-	if in.Touch[1].Active || in.Touch[1].ID != 8 {
-		t.Fatalf("inactive contact: %+v", in.Touch[1])
+	var bt [bluetoothReportLen]byte
+	bt[0] = 0x31
+	copy(bt[2:65], r[1:])
+	binary.LittleEndian.PutUint32(bt[74:], bluetoothCRC(0xa1, bt[:74]))
+	for name, parse := range map[string]func() (protocol.Input, bool){
+		"usb":       func() (protocol.Input, bool) { return Parse(r) },
+		"bluetooth": func() (protocol.Input, bool) { return ParseBluetooth(bt[:]) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			in, ok := parse()
+			if !ok || in.Buttons&protocol.BtnPSCClick == 0 {
+				t.Fatal("touch click missing")
+			}
+			if got := in.Touch[0]; !got.Active || got.ID != 7 || got.X != 0x234 || got.Y != 0x185 {
+				t.Fatalf("contact: %+v", got)
+			}
+			if in.Touch[1].Active || in.Touch[1].ID != 8 {
+				t.Fatalf("inactive contact: %+v", in.Touch[1])
+			}
+		})
 	}
 }
 

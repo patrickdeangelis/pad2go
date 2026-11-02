@@ -69,16 +69,65 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ env.TAG }}
+      # Signing goes through SignPath (free for open source) and runs only once
+      # the SIGNPATH_API_TOKEN secret and SIGNPATH_ORGANIZATION_ID variable exist.
+      # The SignPath project needs the slugs "pad2go" with artifact configurations
+      # "exe" (a zip holding pad2go.exe) and "installer" (the setup .exe), and a
+      # signing policy "release-signing".
       - name: Cross-compile pad2go.exe
-        run: |
-          VERSION="${TAG#v}" packaging/build-windows.sh "$PWD/dist"
-          (cd dist && zip -9 "../pad2go-$TAG-windows-amd64.zip" pad2go.exe)
+        run: VERSION="${TAG#v}" packaging/build-windows.sh "$PWD/dist"
+      - name: Upload unsigned pad2go.exe
+        id: unsigned-exe
+        if: vars.SIGNPATH_ORGANIZATION_ID
+        uses: actions/upload-artifact@v5
+        with:
+          name: unsigned-exe
+          path: dist/pad2go.exe
+      - name: Sign pad2go.exe
+        if: vars.SIGNPATH_ORGANIZATION_ID
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: pad2go
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: exe
+          github-artifact-id: ${{ steps.unsigned-exe.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-exe
+      - name: Use signed pad2go.exe
+        if: vars.SIGNPATH_ORGANIZATION_ID
+        run: cp signed-exe/pad2go.exe dist/pad2go.exe
+      - name: Zip pad2go.exe
+        run: (cd dist && zip -9 "../pad2go-$TAG-windows-amd64.zip" pad2go.exe)
       - uses: actions/download-artifact@v6
         with:
           name: winuhid
           path: winuhid
       - name: Build installer (bundles ViGEmBus and WinUHid)
         run: VERSION="${TAG#v}" packaging/build-windows-installer.sh dist/pad2go.exe "pad2go-$TAG-windows-amd64-setup.exe" winuhid/winuhid.msi
+      - name: Upload unsigned installer
+        id: unsigned-installer
+        if: vars.SIGNPATH_ORGANIZATION_ID
+        uses: actions/upload-artifact@v5
+        with:
+          name: unsigned-installer
+          path: pad2go-*-setup.exe
+      - name: Sign installer
+        if: vars.SIGNPATH_ORGANIZATION_ID
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: pad2go
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-installer
+      - name: Use signed installer
+        if: vars.SIGNPATH_ORGANIZATION_ID
+        run: cp signed-installer/*-setup.exe .
       - uses: actions/upload-artifact@v5
         with:
           name: windows

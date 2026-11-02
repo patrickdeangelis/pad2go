@@ -73,6 +73,8 @@ type Config struct {
 
 	// GyroPassthroughMode "Cemuhook" enables the DSU motion server.
 	GyroPassthroughMode string `yaml:"gyro_passthrough_mode"`
+	// TouchpadPointer enables relative DualSense touchpad motion in DSU.
+	TouchpadPointer bool   `yaml:"touchpad_pointer_enabled"`
 	CemuhookHost    string `yaml:"cemuhook_host"`
 	CemuhookPort    int    `yaml:"cemuhook_port"`
 	// CemuhookSensitivity (1-5) scales yaw only.
@@ -388,6 +390,7 @@ connect_haptics: true
 
 # Set to Cemuhook to serve motion to Cemu / Ryujinx / Dolphin / yuzu forks.
 gyro_passthrough_mode: Default
+touchpad_pointer_enabled: false
 cemuhook_host: 127.0.0.1
 cemuhook_port: 26760
 cemuhook_sensitivity: 1

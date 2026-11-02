@@ -1,7 +1,7 @@
 /* Mapeamento tab (Preact + htm, vendored, no build step). State lives in
    app.js: window.pad2go exposes the snapshot/draft, a save path and change
    notifications, so this module never keeps its own copy of the settings. */
-import { html, render, useState, useEffect, useRef } from './vendor/htm-preact.module.js';
+import { html, useState, useEffect, useRef } from './vendor/htm-preact.module.js';
 
 const remapLabels = { Default: 'Padrão', None: 'Sem ação', MINUS: '−', PLUS: '+', L_STK: 'Clique analógico L', R_STK: 'Clique analógico R', UP: 'Cima', DOWN: 'Baixo', LEFT: 'Esquerda', RIGHT: 'Direita', HOME: 'Home', CAPT: 'Captura' };
 const remapValues = ['Default', 'None', 'A', 'B', 'X', 'Y', 'L', 'R', 'ZL', 'ZR', 'MINUS', 'PLUS', 'L_STK', 'R_STK', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'HOME', 'CAPT'];
@@ -122,7 +122,7 @@ function Output({ draft }) {
     ${confirming && html`<${ConfirmReset} scope=${scope} count=${count} onCancel=${() => setConfirming(false)} onConfirm=${reset} />`}`;
 }
 
-function Mapping() {
+export function Mapping() {
   const { draft } = useStore();
   if (!draft) return null;
   return html`
@@ -131,4 +131,3 @@ function Mapping() {
     <${Output} draft=${draft} />`;
 }
 
-render(html`<${Mapping} />`, document.getElementById('mapping-root'));

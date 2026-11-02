@@ -26,6 +26,7 @@ import (
 
 type fakeBackend struct {
 	saved        *service.Settings
+	config       service.Settings
 	restarted    bool
 	rumbled      int
 	samples      chan app.Sample
@@ -43,7 +44,7 @@ type playerCall struct {
 }
 
 func (f *fakeBackend) Snapshot() service.Snapshot {
-	return service.Snapshot{Platform: "Linux", Players: []service.PlayerView{}}
+	return service.Snapshot{Platform: "Linux", Config: f.config, Players: []service.PlayerView{}}
 }
 func (f *fakeBackend) Subscribe() (<-chan service.Event, func()) {
 	return make(chan service.Event), func() {}
@@ -53,6 +54,7 @@ func (f *fakeBackend) SaveSettings(s service.Settings) error {
 		return errors.New("cemuhook_port: want 1-65535, got 0")
 	}
 	f.saved = &s
+	f.config = s
 	return nil
 }
 func (f *fakeBackend) Restart() { f.restarted = true }
@@ -157,7 +159,7 @@ func TestStaticAndSecurityHeaders(t *testing.T) {
 	if !strings.Contains(resp.Header.Get("Content-Security-Policy"), "default-src 'self'") || resp.Header.Get("X-Frame-Options") != "DENY" {
 		t.Fatalf("headers %v", resp.Header)
 	}
-	for _, asset := range []string{"/app.js", "/styles.css", "/assets/pad2go-icon.png"} {
+	for _, asset := range []string{"/app.js", "/mapping.js", "/test-dialog.js", "/vendor/htm-preact.module.js", "/styles.css", "/assets/pad2go-icon.png"} {
 		if code := do(t, "GET", srv.URL+asset, "", nil).StatusCode; code != 200 {
 			t.Errorf("%s: %d", asset, code)
 		}
@@ -180,6 +182,52 @@ func TestSaveConfig(t *testing.T) {
 	}
 	if code := do(t, "PUT", srv.URL+"/api/config", `{"port":26760,"layout":"Switch"}`, mutate).StatusCode; code != 200 || b.saved.Layout != "Switch" {
 		t.Fatalf("valid: %d", code)
+	}
+}
+
+func TestTouchpadPointerConfigRouteStatuses(t *testing.T) {
+	srv, b := serve(t)
+	state := do(t, "GET", srv.URL+"/api/state", "", nil)
+	if state.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/state: %d", state.StatusCode)
+	}
+	var body map[string]json.RawMessage
+	if err := json.NewDecoder(state.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	var configBody map[string]json.RawMessage
+	if err := json.Unmarshal(body["config"], &configBody); err != nil {
+		t.Fatalf("GET /api/state config: %v", err)
+	}
+	value, ok := configBody["touchpadPointer"]
+	if !ok {
+		t.Fatal("GET /api/state omitted config.touchpadPointer")
+	}
+	var enabled bool
+	if err := json.Unmarshal(value, &enabled); err != nil || enabled {
+		t.Fatalf("config.touchpadPointer = %s, err=%v; want false", value, err)
+	}
+
+	if got := do(t, "GET", srv.URL+"/api/state", "", map[string]string{"Host": "evil.example:80"}).StatusCode; got != http.StatusForbidden {
+		t.Fatalf("GET guard: %d", got)
+	}
+	if got := do(t, "PUT", srv.URL+"/api/config", `{"port":26760,"gyro":true,"touchpadPointer":true}`, mutate).StatusCode; got != http.StatusOK {
+		t.Fatalf("valid settings: %d", got)
+	}
+	if b.saved == nil || !b.saved.TouchpadPointer {
+		t.Fatal("touchpadPointer was not saved")
+	}
+	if got := do(t, "PUT", srv.URL+"/api/config", "{bad", mutate).StatusCode; got != http.StatusBadRequest {
+		t.Fatalf("malformed JSON: %d", got)
+	}
+	if got := do(t, "PUT", srv.URL+"/api/config", `{"port":26760,"unexpected":true}`, mutate).StatusCode; got != http.StatusBadRequest {
+		t.Fatalf("unknown field: %d", got)
+	}
+	if got := do(t, "PUT", srv.URL+"/api/config", `{"port":0}`, mutate).StatusCode; got != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid settings: %d", got)
+	}
+	if got := do(t, "PUT", srv.URL+"/api/config", `{"port":26760,"touchpadPointer":true}`, nil).StatusCode; got != http.StatusForbidden {
+		t.Fatalf("mutation guard: %d", got)
 	}
 }
 

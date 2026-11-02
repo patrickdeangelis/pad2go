@@ -11,18 +11,19 @@ func TestAutoDisconnectSettingUIAndSaveRoute(t *testing.T) {
 	srv, b := serve(t)
 	index := do(t, http.MethodGet, srv.URL+"/", "", nil)
 	page, _ := io.ReadAll(index.Body)
-	if !strings.Contains(string(page), `data-config="autoDisconnectMinutes"`) || !strings.Contains(string(page), `min="0" max="120" step="1"`) {
-		t.Fatal("auto-disconnect setting control missing or unbounded")
+	if !strings.Contains(string(page), `id="pad2go"`) || !strings.Contains(string(page), `src="app.js"`) {
+		t.Fatal("Preact root or app.js script missing from index.html")
 	}
 	js := do(t, http.MethodGet, srv.URL+"/app.js", "", nil)
 	code, _ := io.ReadAll(js.Body)
 	for _, binding := range []string{
-		"const value = draft[node.dataset.config]",
-		"node.value = value",
-		"'autoDisconnectMinutes'",
-		"Number(node.value)",
-		"draft[key] =",
-		"save();",
+		`min="0" max="120" step="1"`,
+		`data-config="autoDisconnectMinutes"`,
+		`draft?.autoDisconnectMinutes ?? 0`,
+		`'autoDisconnectMinutes'`,
+		`Number(rawValue)`,
+		`draft[key] =`,
+		`save();`,
 	} {
 		if !strings.Contains(string(code), binding) {
 			t.Fatalf("auto-disconnect control binding missing %q", binding)

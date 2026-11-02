@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -887,6 +888,266 @@ func TestDualSenseCalibratedMotionToDSU(t *testing.T) {
 	}
 }
 
+func TestTouchpadPointerRelativeMotionAndReanchor(t *testing.T) {
+	var state TouchpadPointerState
+	physical := mapping.Motion{Accel: [3]float32{0.1, 0.9, 0.2}, Gyro: [3]float32{3, 4, 5}}
+	start := time.Unix(10, 0)
+
+	first := [2]protocol.TouchContact{{Active: true, ID: 1, X: 480, Y: 270}}
+	got, active := state.Update(first, start, physical)
+	if !active || got != (mapping.Motion{}) {
+		t.Fatalf("first contact must anchor with zero synthetic motion: active=%v motion=%+v", active, got)
+	}
+
+	moved := [2]protocol.TouchContact{{Active: true, ID: 1, X: 960, Y: 540}}
+	got, active = state.Update(moved, start.Add(200*time.Millisecond), physical)
+	if !active || math.Abs(float64(got.Gyro[0])-(-75)) > 0.01 || math.Abs(float64(got.Gyro[1])-112.5) > 0.01 {
+		t.Fatalf("25%% swipe should map to 25%% normalized axes: active=%v gyro=%v", active, got.Gyro)
+	}
+	replaced := [2]protocol.TouchContact{{Active: true, ID: 2, X: 1600, Y: 800}}
+	got, active = state.Update(replaced, start.Add(220*time.Millisecond), physical)
+	if !active || got != (mapping.Motion{}) {
+		t.Fatalf("new contact ID must re-anchor without a jump: active=%v gyro=%v", active, got.Gyro)
+	}
+
+	secondOnly := [2]protocol.TouchContact{{}, {Active: true, ID: 3, X: 1800, Y: 900}}
+	got, active = state.Update(secondOnly, start.Add(240*time.Millisecond), physical)
+	if active || got != physical {
+		t.Fatalf("second contact must not drive pointer: active=%v motion=%+v", active, got)
+	}
+}
+
+func TestTouchpadPointerPreservesScaleOnFastAndPausedSwipes(t *testing.T) {
+	var state TouchpadPointerState
+	start := time.Unix(30, 0)
+	state.Update([2]protocol.TouchContact{{Active: true, ID: 1, X: 0, Y: 0}}, start, mapping.Motion{})
+	fast := [2]protocol.TouchContact{{Active: true, ID: 1, X: 480, Y: 270}}
+	got, active := state.Update(fast, start.Add(20*time.Millisecond), mapping.Motion{})
+	if !active || math.Abs(float64(got.Gyro[1])-1125) > 0.1 || math.Abs(float64(got.Gyro[0])-(-750)) > 0.1 {
+		t.Fatalf("fast 25%% swipe lost angular displacement: active=%v gyro=%v", active, got.Gyro)
+	}
+	paused := [2]protocol.TouchContact{{Active: true, ID: 1, X: 960, Y: 540}}
+	got, active = state.Update(paused, start.Add(520*time.Millisecond), mapping.Motion{})
+	if !active || math.Abs(float64(got.Gyro[1])-45) > 0.1 || math.Abs(float64(got.Gyro[0])-(-30)) > 0.1 {
+		t.Fatalf("25%% swipe after a pause lost angular displacement: active=%v gyro=%v", active, got.Gyro)
+	}
+}
+
+func TestTouchpadPointerAxesAreIndependent(t *testing.T) {
+	var state TouchpadPointerState
+	start := time.Unix(40, 0)
+	state.Update([2]protocol.TouchContact{{Active: true, ID: 1, X: 200, Y: 300}}, start, mapping.Motion{})
+	horizontal := [2]protocol.TouchContact{{Active: true, ID: 1, X: 680, Y: 300}}
+	got, _ := state.Update(horizontal, start.Add(200*time.Millisecond), mapping.Motion{})
+	if got.Gyro[0] != 0 || math.Abs(float64(got.Gyro[1])-112.5) > 0.01 {
+		t.Fatalf("horizontal swipe cross-axis/rate = %v; want [0,112.5,0]", got.Gyro)
+	}
+	vertical := [2]protocol.TouchContact{{Active: true, ID: 1, X: 680, Y: 570}}
+	got, _ = state.Update(vertical, start.Add(400*time.Millisecond), mapping.Motion{})
+	if math.Abs(float64(got.Gyro[0])-(-75)) > 0.01 || got.Gyro[1] != 0 {
+		t.Fatalf("vertical swipe cross-axis/rate = %v; want [-75,0,0]", got.Gyro)
+	}
+}
+
+func TestTouchpadPointerEdenCalibrationInvertsObservedScaleAndCoupling(t *testing.T) {
+	raw := mapping.Motion{Gyro: [3]float32{-75, 112.5, 3}}
+	got := calibrateTouchpadPointerMotion(raw)
+	if math.Abs(float64(got.Gyro[0])-(-25.64)) > 0.05 || math.Abs(float64(got.Gyro[1])-44.19) > 0.05 || got.Gyro[2] != 3 {
+		t.Fatalf("calibrated touch motion = %v; want approximately [-25.64,44.19,3]", got.Gyro)
+	}
+}
+
+func TestTouchpadPointerCalibrationIsAppliedToPublishedDSUMotion(t *testing.T) {
+	_, cli, d, _ := touchpadDSUTestSetup(t, true)
+	in := protocol.Input{DualSenseMotionCalibrated: true}
+	in.Touch[0] = protocol.TouchContact{Active: true, ID: 1, X: 480, Y: 270}
+	d.send(in)
+	_ = readDSUTestPacket(t, cli)
+	time.Sleep(20 * time.Millisecond)
+	in.Touch[0] = protocol.TouchContact{Active: true, ID: 1, X: 960, Y: 540}
+	d.send(in)
+	packet := readDSUTestPacket(t, cli)
+	data := packet[16:]
+	gotX := float64(dsuFloat(data, 76)) / touchpadHorizontalDegrees
+	gotY := -float64(dsuFloat(data, 72)) / touchpadVerticalDegrees
+	unit := calibrateTouchpadPointerMotion(mapping.Motion{Gyro: [3]float32{-60, 90, 0}})
+	wantRatio := (float64(unit.Gyro[1]) / touchpadHorizontalDegrees) / (-float64(unit.Gyro[0]) / touchpadVerticalDegrees)
+	if gotX == 0 || gotY == 0 || math.Abs(gotX/gotY-wantRatio) > 0.02 {
+		t.Fatalf("published normalized DSU motion ratio X/Y=%v; want calibrated ratio %v", gotX/gotY, wantRatio)
+	}
+}
+
+func TestTouchpadPointerReleaseRestoresPhysicalGyro(t *testing.T) {
+	var state TouchpadPointerState
+	physical := mapping.Motion{Accel: [3]float32{0, 1, 0}, Gyro: [3]float32{7, 8, 9}}
+	now := time.Unix(20, 0)
+	state.Update([2]protocol.TouchContact{{Active: true, ID: 4, X: 200, Y: 300}}, now, physical)
+	state.Update([2]protocol.TouchContact{{Active: true, ID: 4, X: 300, Y: 300}}, now.Add(20*time.Millisecond), physical)
+	got, active := state.Update([2]protocol.TouchContact{}, now.Add(40*time.Millisecond), physical)
+	if active || got != physical {
+		t.Fatalf("release should clear synthetic motion and restore physical gyro: active=%v motion=%+v", active, got)
+	}
+}
+
+func TestTouchpadPointerDisabledPreservesMotion(t *testing.T) {
+	srv, cli, d, rec := touchpadDSUTestSetup(t, false)
+	in := protocol.Input{
+		DualSenseMotionCalibrated: true,
+		DualSenseAccelG:           [3]float32{1, 2, 3},
+		DualSenseGyroDPS:          [3]float32{10, 20, 30},
+		Buttons:                   protocol.BtnA,
+		Left:                      protocol.Stick{X: 0.5, Y: -0.25},
+		RightTrigger:              90,
+	}
+	d.send(in)
+	_ = readDSUTestPacket(t, cli)
+	pads := rec.Snapshot()
+	if len(pads) != 1 {
+		t.Fatalf("virtual pads: %d, want 1", len(pads))
+	}
+	before, _ := pads[0].State()
+	in.Touch[0] = protocol.TouchContact{Active: true, ID: 1, X: 900, Y: 400}
+	d.send(in)
+	packet := readDSUTestPacket(t, cli)
+	data := packet[16:]
+	if got := [3]float32{dsuFloat(data, 72), dsuFloat(data, 76), dsuFloat(data, 80)}; got != [3]float32{10, -20, -30} {
+		t.Fatalf("disabled touch pointer changed physical motion: %v", got)
+	}
+	after, _ := pads[0].State()
+	if after != before {
+		t.Fatalf("touch changed virtual gamepad frame: before=%+v after=%+v", before, after)
+	}
+	if pads[0].Updates != 2 {
+		t.Fatalf("virtual output updates changed: %+v", pads)
+	}
+	_ = srv
+}
+
+func TestTouchpadPointerMultitouchAndClick(t *testing.T) {
+	_, cli, d, _ := touchpadDSUTestSetup(t, true)
+	d.send(protocol.Input{DualSenseMotionCalibrated: true, DualSenseGyroDPS: [3]float32{1, 2, 3}, Buttons: protocol.BtnPSCClick, Touch: [2]protocol.TouchContact{
+		{Active: true, ID: 1, X: 100, Y: 100}, {Active: true, ID: 2, X: 500, Y: 500},
+	}})
+	packet := readDSUTestPacket(t, cli)
+	if packet[16+23] != 1 {
+		t.Fatalf("touchpad click bit = %d, want 1", packet[16+23])
+	}
+	d.send(protocol.Input{DualSenseMotionCalibrated: true, DualSenseGyroDPS: [3]float32{1, 2, 3}, Buttons: protocol.BtnPSCClick, Touch: [2]protocol.TouchContact{
+		{Active: true, ID: 1, X: 100, Y: 100}, {Active: true, ID: 2, X: 900, Y: 900},
+	}})
+	packet = readDSUTestPacket(t, cli)
+	data := packet[16:]
+	if packet[16+23] != 1 || [3]float32{dsuFloat(data, 72), dsuFloat(data, 76), dsuFloat(data, 80)} != [3]float32{} {
+		t.Fatalf("second contact moved pointer or changed click: click=%d gyro=%v", packet[16+23], [3]float32{dsuFloat(data, 72), dsuFloat(data, 76), dsuFloat(data, 80)})
+	}
+	d.send(protocol.Input{DualSenseMotionCalibrated: true, DualSenseGyroDPS: [3]float32{1, 2, 3}, Buttons: protocol.BtnPSCClick, Touch: [2]protocol.TouchContact{
+		{}, {Active: true, ID: 2, X: 900, Y: 900},
+	}})
+	packet = readDSUTestPacket(t, cli)
+	data = packet[16:]
+	if packet[16+23] != 1 || [3]float32{dsuFloat(data, 72), dsuFloat(data, 76), dsuFloat(data, 80)} != [3]float32{1, -2, -3} {
+		t.Fatalf("release of first contact changed click or physical gyro: click=%d gyro=%v", packet[16+23], [3]float32{dsuFloat(data, 72), dsuFloat(data, 76), dsuFloat(data, 80)})
+	}
+}
+
+func TestTouchpadPointerDSUOnlyAndFanout(t *testing.T) {
+	srv, cli1, d, rec := touchpadDSUTestSetup(t, true)
+	cli2, err := net.DialUDP("udp", nil, srv.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cli2.Close()
+	subscribeAll(cli2)
+	cli2.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
+	buf := make([]byte, 256)
+	for {
+		if _, err := cli2.Read(buf); err != nil {
+			break
+		}
+	}
+	in := protocol.Input{DualSenseMotionCalibrated: true, Buttons: protocol.BtnA, Left: protocol.Stick{X: 0.25, Y: 0.5}}
+	d.send(in)
+	_ = readDSUTestPacket(t, cli1)
+	_ = readDSUTestPacket(t, cli2)
+	pads := rec.Snapshot()
+	if len(pads) != 1 {
+		t.Fatalf("virtual pads: %d, want 1", len(pads))
+	}
+	baseline, _ := pads[0].State()
+	in.Touch[0] = protocol.TouchContact{Active: true, ID: 1, X: 100, Y: 100}
+	d.send(in)
+	first1 := readDSUTestPacket(t, cli1)
+	first2 := readDSUTestPacket(t, cli2)
+	if !bytes.Equal(first1, first2) {
+		t.Fatal("subscribers received different anchor packets")
+	}
+	time.Sleep(200 * time.Millisecond)
+	in.Touch[0] = protocol.TouchContact{Active: true, ID: 1, X: 580, Y: 100}
+	d.send(in)
+	packet1 := readDSUTestPacket(t, cli1)
+	packet2 := readDSUTestPacket(t, cli2)
+	if !bytes.Equal(packet1, packet2) {
+		t.Fatalf("subscribers received different player motion packets")
+	}
+	if got := dsuFloat(packet1[16:], 76); got == 0 {
+		t.Fatal("horizontal touch swipe produced no DSU motion")
+	}
+	gamepad, _ := pads[0].State()
+	if gamepad != baseline {
+		t.Fatalf("touch motion changed virtual gamepad: before=%+v after=%+v", baseline, gamepad)
+	}
+	if len(pads) != 1 || pads[0].Updates != 3 {
+		t.Fatalf("touch pointer changed virtual output path: %+v", pads)
+	}
+}
+
+func touchpadDSUTestSetup(t *testing.T, enabled bool) (*dsu.Server, *net.UDPConn, *fakeDev, *virtualpad.Recorder) {
+	t.Helper()
+	srv, err := dsu.Listen("127.0.0.1:0", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { srv.Close() })
+	cli, err := net.DialUDP("udp", nil, srv.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cli.Close() })
+	subscribeAll(cli)
+	deadline := time.Now().Add(time.Second)
+	for srv.Clients() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if srv.Clients() == 0 {
+		t.Fatal("DSU test client did not subscribe")
+	}
+	cfg := config.Default()
+	cfg.TouchpadPointer = enabled
+	rec := &virtualpad.Recorder{}
+	a := New(cfg, rec, srv, nil)
+	d := newDev("touchpad", 0)
+	d.kind = protocol.KindDualSense
+	if err := a.AddDevice(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { a.Close() })
+	return srv, cli, d, rec
+}
+
+func readDSUTestPacket(t *testing.T, cli *net.UDPConn) []byte {
+	t.Helper()
+	buf := make([]byte, 256)
+	cli.SetReadDeadline(time.Now().Add(time.Second))
+	n, err := cli.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return append([]byte(nil), buf[:n]...)
+}
+
+func dsuFloat(data []byte, offset int) float32 {
+	return math.Float32frombits(binary.LittleEndian.Uint32(data[offset:]))
+}
 func TestDualSenseSlotsFullRetries(t *testing.T) {
 	a, _ := newApp(t, func(c *config.Config) { c.MaxControllers = 1 })
 	if err := a.AddDevice(context.Background(), newDev("p", protocol.ProController2PID)); err != nil {
