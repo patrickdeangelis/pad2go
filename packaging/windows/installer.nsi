@@ -1,8 +1,9 @@
 ; Pad2Go Windows installer. Built by packaging/build-windows-installer.sh:
-;   makensis -DVERSION=1.2.3 -DDIST=<dir with pad2go.exe> -DVIGEMBUS=<ViGEmBus setup> -DOUTFILE=<installer>
+;   makensis -DVERSION=1.2.3 -DDIST=<dir with pad2go.exe> -DVIGEMBUS=<ViGEmBus setup> -DWINUHID=<WinUHid MSI> -DOUTFILE=<installer>
 ; Installs pad2go.exe and, when no working ViGEmBus is found ("pad2go check"),
-; the bundled ViGEmBus driver. The uninstaller leaves ViGEmBus in place: other
-; apps may use it.
+; the bundled ViGEmBus driver; likewise the bundled WinUHid MSI when
+; "pad2go check winuhid" fails. The uninstaller leaves both drivers in place:
+; other apps may use them.
 
 Unicode true
 SetCompressor /SOLID lzma
@@ -95,6 +96,28 @@ Section "ViGEmBus" SecViGEm
     SetRebootFlag true
   ${ElseIf} $0 != 0
     MessageBox MB_ICONEXCLAMATION "A instalação do ViGEmBus falhou (código $0).$\r$\nO Pad2Go funciona, mas sem controle Xbox virtual. Instale o ViGEmBus manualmente: https://github.com/nefarius/ViGEmBus/releases"
+  ${EndIf}
+SectionEnd
+
+; WinUHid: the DualSense/Switch Pro driver. Checked through the driver device
+; itself ("pad2go check winuhid"). Its MSI installs the driver and creates the
+; root device, so it runs silently, like the ViGEmBus setup above.
+Section "WinUHid" SecWinUHid
+  DetailPrint "Verificando o driver WinUHid..."
+  nsExec::ExecToLog '"$INSTDIR\pad2go.exe" check winuhid'
+  Pop $0
+  ${If} $0 == 0
+    DetailPrint "WinUHid já está instalado."
+    Return
+  ${EndIf}
+  DetailPrint "Instalando o driver WinUHid..."
+  InitPluginsDir
+  File "/oname=$PLUGINSDIR\WinUHid.msi" "${WINUHID}"
+  ExecWait '"$SYSDIR\msiexec.exe" /i "$PLUGINSDIR\WinUHid.msi" /qn /norestart' $0
+  ${If} $0 == 3010
+    SetRebootFlag true
+  ${ElseIf} $0 != 0
+    MessageBox MB_ICONEXCLAMATION "A instalação do WinUHid falhou (código $0).$\r$\nO Pad2Go funciona, mas sem controle DualSense virtual. O Pad2Go usa Xbox 360 quando o DualSense não está disponível."
   ${EndIf}
 SectionEnd
 

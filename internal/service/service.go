@@ -860,9 +860,10 @@ func (s *Service) Diagnostics() []Check {
 		for _, c := range virtualpad.Diagnose() {
 			checks = append(checks, Check{Name: c.Name, OK: c.OK, Detail: c.Detail, Help: c.Help})
 		}
-		// Automática sends a DualSense to the DualSense output, so its
-		// driver is a prerequisite too.
-		if kind == virtualpad.OutputAuto && Platform() != "macOS" {
+		// Any virtual pad output can end up needing the DualSense driver: the
+		// default may be Automática (DualSense falls back to Xbox 360 when it
+		// is missing) or a player may pick DualSense on its own.
+		if kind != virtualpad.OutputNone && Platform() != "macOS" {
 			checks = append(checks, hidCheck(virtualpad.OutputDualSense))
 		}
 	}

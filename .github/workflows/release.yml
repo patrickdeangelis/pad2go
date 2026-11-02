@@ -35,7 +35,35 @@ jobs:
           name: macos
           path: pad2go-*.dmg
 
+  # The WinUHid driver is built here, from the upstream commit pinned below,
+  # because the WDK and MSBuild only run on Windows. The MSI is bundled into the
+  # installer by the windows job. Bump the ref to take a newer upstream commit.
+  winuhid:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+          path: pad2go
+      - uses: actions/checkout@v5
+        with:
+          repository: cgutman/WinUHid
+          ref: d6cebbef5c7909168d1f881185be8f607d6aefd4
+          path: winuhid-src
+      - uses: microsoft/setup-msbuild@v2
+      - name: Install the Windows Driver Kit
+        run: choco install windowsdriverkit11 -y --no-progress
+      - name: Build WinUHid driver and MSI
+        shell: pwsh
+        working-directory: pad2go
+        run: packaging/windows/build-winuhid.ps1 -Source ../winuhid-src -Out ../winuhid/winuhid.msi
+      - uses: actions/upload-artifact@v5
+        with:
+          name: winuhid
+          path: winuhid/winuhid.msi
+
   windows:
+    needs: winuhid
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -45,8 +73,12 @@ jobs:
         run: |
           VERSION="${TAG#v}" packaging/build-windows.sh "$PWD/dist"
           (cd dist && zip -9 "../pad2go-$TAG-windows-amd64.zip" pad2go.exe)
-      - name: Build installer (bundles ViGEmBus)
-        run: VERSION="${TAG#v}" packaging/build-windows-installer.sh dist/pad2go.exe "pad2go-$TAG-windows-amd64-setup.exe"
+      - uses: actions/download-artifact@v6
+        with:
+          name: winuhid
+          path: winuhid
+      - name: Build installer (bundles ViGEmBus and WinUHid)
+        run: VERSION="${TAG#v}" packaging/build-windows-installer.sh dist/pad2go.exe "pad2go-$TAG-windows-amd64-setup.exe" winuhid/winuhid.msi
       - uses: actions/upload-artifact@v5
         with:
           name: windows

@@ -41,7 +41,8 @@ Commands:
   scan      list nearby Switch 2 controllers without connecting
   dump-hid  record DualSense USB or Bluetooth input reports
   init      write a starter config file
-  check     exit 0 if the virtual gamepad driver (ViGEmBus, uinput) works
+  check     exit 0 if the virtual gamepad driver (ViGEmBus, uinput) works;
+            "check winuhid" tests the DualSense/Switch driver (WinUHid, uhid)
   version   print the version
 
 Flags:
@@ -97,7 +98,7 @@ func main() {
 	case "init":
 		err = writeConfig(cfgPath)
 	case "check":
-		err = checkOutput(cfgPath)
+		err = checkOutput(cfgPath, fs.Arg(1))
 	case "version":
 		fmt.Println("pad2go", version)
 	default:
@@ -133,8 +134,23 @@ func configPath(flagValue string) (string, error) {
 }
 
 // checkOutput fails unless every virtual gamepad prerequisite holds. The
-// Windows installer runs it to decide whether to install ViGEmBus.
-func checkOutput(cfgPath string) error {
+// Windows installer runs it to decide whether to install ViGEmBus. With
+// target "winuhid" it checks only the DualSense/Switch driver, which the
+// installer runs separately to decide whether to install WinUHid.
+func checkOutput(cfgPath, target string) error {
+	switch target {
+	case "":
+	case "winuhid":
+		backend, err := virtualpad.Open(virtualpad.OutputDualSense)
+		if err != nil {
+			return err
+		}
+		defer backend.Close()
+		fmt.Printf("%s: ready\n", virtualpad.Name(virtualpad.OutputDualSense))
+		return nil
+	default:
+		return fmt.Errorf("check: unknown target %q (want winuhid)", target)
+	}
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return err
